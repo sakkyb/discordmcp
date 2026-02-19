@@ -7,6 +7,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
+    "bot": "node build/bot.js",
     "dev": "tsc -w",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -18,13 +19,14 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.77.0",
     "@modelcontextprotocol/sdk": "^1.2.0",
     "discord.js": "^14.14.1",
     "dotenv": "^16.4.7",
-    "zod": "^3.22.4"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^20.11.16",
-    "typescript": "^5.3.3"
+    "@types/node": "^20.19.33",
+    "typescript": "^5.9.3"
   }
 }
