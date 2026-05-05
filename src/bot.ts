@@ -4,6 +4,13 @@ import { betaZodTool } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
 import http from 'http';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 dotenv.config();
 
@@ -51,6 +58,56 @@ const webSearchTool = betaZodTool({
   },
 });
 
+// Tool: create LinkedIn post
+const createLinkedInPostTool = betaZodTool({
+  name: 'create_linkedin_post',
+  description: 'Generate a LinkedIn post based on provided content, images, URLs, or text following specific style guidelines',
+  inputSchema: z.object({
+    input: z.string().describe('The input content - can be text, URL, image description, or any source material for the post'),
+    topic: z.string().optional().describe('Optional specific topic or theme for the post'),
+  }),
+  run: async ({ input, topic }) => {
+    // Read the LinkedIn post generator v2 guidelines
+    const guidelinesPath = '/Users/sakshatbaral/Documents/GitHub/life-master/life-hub/skills/linkedin-post-generator-v2.md';
+    let guidelines = '';
+    
+    try {
+      guidelines = fs.readFileSync(guidelinesPath, 'utf-8');
+    } catch (error) {
+      console.error('Could not read LinkedIn guidelines:', error);
+      guidelines = 'Use best practices for LinkedIn posts';
+    }
+
+    const prompt = `Based on these LinkedIn post guidelines:
+
+${guidelines}
+
+Create a LinkedIn post using this input material:
+${input}
+
+${topic ? `Focus on the topic: ${topic}` : ''}
+
+Remember to:
+- Use a captivating hook from the styles mentioned
+- Keep it under 150 words
+- Include a thought-provoking question at the end
+- Make it conversational and specific
+- Reference real names/products where possible
+- Structure it for maximum engagement
+
+Provide the post and then list 3 alternative hook/second line combinations.`;
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const postContent = response.content.find(b => b.type === 'text')?.text ?? '';
+    return `📝 **LinkedIn Post Created:**\n\n${postContent}`;
+  },
+});
+
 // Tool: fetch and read the content of a URL
 const fetchUrlTool = betaZodTool({
   name: 'fetch_url',
@@ -83,11 +140,14 @@ const fetchUrlTool = betaZodTool({
 const tools = [
   ...(process.env.BRAVE_API_KEY ? [webSearchTool] : []),
   fetchUrlTool,
+  createLinkedInPostTool,
 ];
 
-const SYSTEM_PROMPT = `You are a helpful assistant in a Discord server. You have tools to browse the internet and fetch URLs.
+const SYSTEM_PROMPT = `You are a helpful assistant in a Discord server. You have tools to browse the internet, fetch URLs, and create LinkedIn posts.
 
 When users ask about current events, websites, Reddit, or anything that requires live data — use your tools to look it up rather than saying you can't.
+
+When users ask you to "create a post" or "create me a post" with any input (image, URL, text), use the create_linkedin_post tool to generate a professional LinkedIn post following the specific style guidelines.
 
 Keep responses concise and conversational. Use Discord markdown formatting where appropriate (bold with **text**, code with \`code\`). Responses must be under 1900 characters — summarise if needed.`;
 
@@ -100,6 +160,7 @@ discord.once(Events.ClientReady, (client) => {
   console.log(`Logged in as ${client.user.tag}`);
   console.log(`Web search: ${hasSearch ? 'enabled (Brave)' : 'disabled — add BRAVE_API_KEY to .env to enable'}`);
   console.log('URL fetching: enabled');
+  console.log('LinkedIn post creation: enabled');
 });
 
 discord.on(Events.MessageCreate, async (message: Message) => {
