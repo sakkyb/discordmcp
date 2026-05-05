@@ -191,6 +191,17 @@ setInterval(() => {
   }
 }, 60000); // Every minute
 
+// Add debug logging for all events
+discord.on('debug', (info) => {
+  if (info.includes('token') || info.includes('Token')) {
+    console.log('Discord debug (token-related):', info.replace(/[\w-]{24}\.[\w-]{6}\.[\w-]{27}/g, '[REDACTED]'));
+  } else if (info.includes('Heartbeat') || info.includes('heartbeat')) {
+    // Skip heartbeat spam
+  } else {
+    console.log('Discord debug:', info);
+  }
+});
+
 discord.once(Events.ClientReady, (client) => {
   isConnected = true;
   lastActivity = Date.now();
@@ -408,6 +419,20 @@ console.log('Attempting to login to Discord...');
 console.log('Token exists:', !!process.env.DISCORD_TOKEN);
 console.log('Token length:', process.env.DISCORD_TOKEN?.length || 0);
 console.log('Token starts with:', process.env.DISCORD_TOKEN?.substring(0, 10) + '...');
+
+// Test if we can reach Discord's API
+console.log('Testing Discord API connectivity...');
+fetch('https://discord.com/api/v10/gateway')
+  .then(res => {
+    console.log('Discord API reachable, status:', res.status);
+    return res.json();
+  })
+  .then(data => {
+    console.log('Gateway URL:', data.url);
+  })
+  .catch(err => {
+    console.error('Cannot reach Discord API:', err.message);
+  });
 
 // Create a timeout promise
 const timeoutPromise = new Promise((_, reject) => {
