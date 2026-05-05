@@ -403,14 +403,24 @@ if (!process.env.ANTHROPIC_API_KEY) {
   process.exit(1);
 }
 
-// Login with automatic reconnection
+// Login with automatic reconnection and detailed error logging
+console.log('Attempting to login to Discord...');
+console.log('Token exists:', !!process.env.DISCORD_TOKEN);
+console.log('Token length:', process.env.DISCORD_TOKEN?.length || 0);
+
 discord.login(process.env.DISCORD_TOKEN).catch((error) => {
-  console.error('Failed to login to Discord:', error);
+  console.error('Failed to login to Discord:', error.message || error);
+  
+  // Log more details about the error
+  if (error.code) console.error('Error code:', error.code);
+  if (error.response) console.error('Response:', error.response);
+  
   console.log('Retrying in 5 seconds...');
   setTimeout(() => {
     discord.login(process.env.DISCORD_TOKEN).catch((retryError) => {
-      console.error('Retry failed:', retryError);
-      process.exit(1);
+      console.error('Retry failed:', retryError.message || retryError);
+      // Keep running but disconnected so health check shows the issue
+      // process.exit(1);
     });
   }, 5000);
 });
