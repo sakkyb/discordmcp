@@ -14,9 +14,30 @@ const __dirname = dirname(__filename);
 
 dotenv.config();
 
-// Minimal HTTP server so Render keeps the service alive (free tier requires a web port)
+// Track bot connection status
+let isConnected = false;
+let lastActivity = Date.now();
+
+// Enhanced HTTP server with health check endpoint
 const PORT = process.env.PORT ?? 3000;
-http.createServer((_, res) => { res.writeHead(200); res.end('OK'); }).listen(PORT);
+http.createServer((req, res) => {
+  if (req.url === '/health') {
+    const status = {
+      status: isConnected ? 'healthy' : 'unhealthy',
+      discord: isConnected ? 'connected' : 'disconnected',
+      uptime: process.uptime(),
+      lastActivity: new Date(lastActivity).toISOString(),
+      memoryUsage: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
+    };
+    res.writeHead(isConnected ? 200 : 503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(status));
+  } else {
+    res.writeHead(200);
+    res.end('OK');
+  }
+}).listen(PORT);
+
+console.log(`Health check available at http://localhost:${PORT}/health`);
 
 const discord = new Client({
   intents: [
@@ -151,19 +172,67 @@ When users ask you to "create a post" or "create me a post" with any input (imag
 
 Keep responses concise and conversational. Use Discord markdown formatting where appropriate (bold with **text**, code with \`code\`). Responses must be under 1900 characters — summarise if needed.`;
 
-// Per-channel conversation history (in-memory)
+// Per-channel conversation history with memory management
 const conversations = new Map<string, Anthropic.MessageParam[]>();
 const MAX_HISTORY = 20;
+const MAX_CONVERSATIONS = 100; // Limit total conversations to prevent memory issues
+
+// Clean up old conversations periodically
+setInterval(() => {
+  if (conversations.size > MAX_CONVERSATIONS) {
+    const toDelete = conversations.size - MAX_CONVERSATIONS;
+    const keys = Array.from(conversations.keys());
+    for (let i = 0; i < toDelete; i++) {
+      conversations.delete(keys[i]);
+    }
+    console.log(`Cleaned up ${toDelete} old conversations`);
+  }
+}, 60000); // Every minute
 
 discord.once(Events.ClientReady, (client) => {
+  isConnected = true;
+  lastActivity = Date.now();
   const hasSearch = !!process.env.BRAVE_API_KEY;
-  console.log(`Logged in as ${client.user.tag}`);
+  console.log(`✅ Logged in as ${client.user.tag}`);
   console.log(`Web search: ${hasSearch ? 'enabled (Brave)' : 'disabled — add BRAVE_API_KEY to .env to enable'}`);
   console.log('URL fetching: enabled');
   console.log('LinkedIn post creation: enabled');
 });
 
+// Handle disconnection and reconnection
+discord.on(Events.ShardDisconnect, (event, shardId) => {
+  isConnected = false;
+  console.error(`❌ Discord disconnected (shard ${shardId}):`, event);
+  console.log('Attempting to reconnect...');
+});
+
+discord.on(Events.ShardReconnecting, (shardId) => {
+  console.log(`🔄 Reconnecting to Discord (shard ${shardId})...`);
+});
+
+discord.on(Events.ShardReady, (shardId) => {
+  isConnected = true;
+  lastActivity = Date.now();
+  console.log(`✅ Reconnected to Discord (shard ${shardId})`);
+});
+
+discord.on(Events.ShardResume, (shardId, replayedEvents) => {
+  isConnected = true;
+  lastActivity = Date.now();
+  console.log(`✅ Resumed connection (shard ${shardId}, replayed ${replayedEvents} events)`);
+});
+
+discord.on(Events.Error, (error) => {
+  console.error('Discord client error:', error);
+});
+
+discord.on(Events.Warn, (warning) => {
+  console.warn('Discord warning:', warning);
+});
+
 discord.on(Events.MessageCreate, async (message: Message) => {
+  lastActivity = Date.now();
+  
   if (message.author.bot) return;
   if (!message.mentions.has(discord.user!)) return;
 
@@ -221,12 +290,73 @@ discord.on(Events.MessageCreate, async (message: Message) => {
       }
     }
   } catch (error) {
-    console.error('Error:', error);
-    await message.reply('Sorry, I ran into an error. Please try again.');
+    console.error('Error processing message:', error);
+    
+    // Provide more specific error messages
+    let errorMessage = 'Sorry, I ran into an error. ';
+    
+    if (error instanceof Error) {
+      if (error.message.includes('rate limit')) {
+        errorMessage += 'I\'m being rate limited. Please wait a moment and try again.';
+      } else if (error.message.includes('timeout')) {
+        errorMessage += 'The request timed out. Please try again.';
+      } else if (error.message.includes('ECONNREFUSED') || error.message.includes('ENOTFOUND')) {
+        errorMessage += 'I couldn\'t connect to the service. Please try again later.';
+      } else {
+        errorMessage += 'Please try again or contact support if this persists.';
+      }
+    }
+    
+    try {
+      await message.reply(errorMessage);
+    } catch (replyError) {
+      console.error('Failed to send error message:', replyError);
+    }
   }
 });
 
-if (!process.env.DISCORD_TOKEN) throw new Error('DISCORD_TOKEN is not set');
-if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY is not set');
+// Graceful shutdown handling
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  discord.destroy();
+  process.exit(0);
+});
 
-discord.login(process.env.DISCORD_TOKEN);
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully...');
+  discord.destroy();
+  process.exit(0);
+});
+
+// Handle uncaught exceptions and unhandled rejections
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  // Don't exit - try to recover
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit - try to recover
+});
+
+if (!process.env.DISCORD_TOKEN) {
+  console.error('❌ DISCORD_TOKEN is not set');
+  process.exit(1);
+}
+
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.error('❌ ANTHROPIC_API_KEY is not set');
+  process.exit(1);
+}
+
+// Login with automatic reconnection
+discord.login(process.env.DISCORD_TOKEN).catch((error) => {
+  console.error('Failed to login to Discord:', error);
+  console.log('Retrying in 5 seconds...');
+  setTimeout(() => {
+    discord.login(process.env.DISCORD_TOKEN).catch((retryError) => {
+      console.error('Retry failed:', retryError);
+      process.exit(1);
+    });
+  }, 5000);
+});
