@@ -166,6 +166,8 @@ const tools = [
 
 const SYSTEM_PROMPT = `You are a helpful assistant in a Discord server. You have tools to browse the internet, fetch URLs, and create LinkedIn posts.
 
+You can also see and analyze images that users share with you. When users share images, you can describe them, analyze designs, read text in them, and use them as input for creating content.
+
 When users ask about current events, websites, Reddit, or anything that requires live data — use your tools to look it up rather than saying you can't.
 
 When users ask you to "create a post" or "create me a post" with any input (image, URL, text), use the create_linkedin_post tool to generate a professional LinkedIn post following the specific style guidelines.
@@ -197,6 +199,7 @@ discord.once(Events.ClientReady, (client) => {
   console.log(`Web search: ${hasSearch ? 'enabled (Brave)' : 'disabled — add BRAVE_API_KEY to .env to enable'}`);
   console.log('URL fetching: enabled');
   console.log('LinkedIn post creation: enabled');
+  console.log('Image analysis: enabled');
 });
 
 // Handle disconnection and reconnection
@@ -237,8 +240,14 @@ discord.on(Events.MessageCreate, async (message: Message) => {
   if (!message.mentions.has(discord.user!)) return;
 
   const content = message.content.replace(/<@!?[0-9]+>/g, '').trim();
-  if (!content) {
-    await message.reply("Hi! Ask me anything — I can browse the web too.");
+  
+  // Check for image attachments
+  const imageAttachments = message.attachments.filter(att => 
+    att.contentType?.startsWith('image/')
+  );
+  
+  if (!content && imageAttachments.size === 0) {
+    await message.reply("Hi! Ask me anything — I can browse the web and analyze images too.");
     return;
   }
 
@@ -247,7 +256,52 @@ discord.on(Events.MessageCreate, async (message: Message) => {
     conversations.set(channelId, []);
   }
   const history = conversations.get(channelId)!;
-  history.push({ role: 'user', content });
+  
+  // Build message content with images
+  const messageContent: any[] = [];
+  
+  // Add text if present
+  if (content) {
+    messageContent.push({ type: 'text', text: content });
+  }
+  
+  // Add images if present
+  if (imageAttachments.size > 0) {
+    for (const attachment of imageAttachments.values()) {
+      try {
+        // Fetch the image
+        const imageResponse = await fetch(attachment.url);
+        const imageBuffer = await imageResponse.arrayBuffer();
+        const base64Image = Buffer.from(imageBuffer).toString('base64');
+        
+        messageContent.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: attachment.contentType || 'image/jpeg',
+            data: base64Image
+          }
+        });
+        
+        // Add context about the image
+        if (!content) {
+          messageContent.unshift({ 
+            type: 'text', 
+            text: 'Please analyze this image:' 
+          });
+        }
+      } catch (error) {
+        console.error('Failed to fetch image:', error);
+        messageContent.push({ 
+          type: 'text', 
+          text: `[Failed to load image: ${attachment.name}]` 
+        });
+      }
+    }
+  }
+  
+  // Push structured content to history
+  history.push({ role: 'user', content: messageContent });
 
   const ch = message.channel;
   if (
