@@ -125,7 +125,7 @@ Provide the post and then list 3 alternative hook/second line combinations.`;
     });
 
     const postContent = response.content.find(b => b.type === 'text')?.text ?? '';
-    return `📝 **LinkedIn Post Created:**\n\n${postContent}`;
+    return postContent;
   },
 });
 
@@ -355,19 +355,37 @@ discord.on(Events.MessageCreate, async (message: Message) => {
       const lines = reply.split('\n');
       
       for (const line of lines) {
-        if (current.length + line.length + 1 <= 1900) {
+        if (current.length + line.length + 1 <= 1800) { // Leave more room for numbering
           current += (current ? '\n' : '') + line;
         } else {
           if (current) chunks.push(current);
           current = line;
+          
+          // Handle very long lines by splitting them
+          while (current.length > 1800) {
+            const splitPoint = current.lastIndexOf(' ', 1800);
+            if (splitPoint > 0) {
+              chunks.push(current.substring(0, splitPoint));
+              current = current.substring(splitPoint + 1);
+            } else {
+              chunks.push(current.substring(0, 1800));
+              current = current.substring(1800);
+            }
+          }
         }
       }
       if (current) chunks.push(current);
       
+      // Send all chunks
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
-        const prefix = i === 0 ? '' : `**(${i + 1}/${chunks.length})**\n`;
+        const prefix = chunks.length > 1 ? `**Part ${i + 1}/${chunks.length}:**\n` : '';
         await message.reply(prefix + chunk);
+        
+        // Small delay between chunks to avoid rate limiting
+        if (i < chunks.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
       }
     }
   } catch (error) {
