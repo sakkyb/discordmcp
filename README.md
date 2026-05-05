@@ -1,33 +1,55 @@
-# Discord MCP Server
+# Discord Claude Bot (Render Deployment Only)
 
-A Model Context Protocol (MCP) server that enables LLMs to interact with Discord channels, allowing them to send and read messages through Discord's API. Using this server, LLMs like Claude can directly interact with Discord channels while maintaining user control and security.
+A Discord bot powered by Claude that can browse the web, analyze images, and create LinkedIn posts. This bot is deployed exclusively on Render for 24/7 availability and cannot be run locally to prevent token conflicts.
 
 ## Features
 
-- Send messages to Discord channels
-- Read recent messages from channels
-- Automatic server and channel discovery
-- Support for both channel names and IDs
-- Proper error handling and validation
+- **Web Browsing**: Search the internet and fetch webpage content
+- **Image Analysis**: View and understand images shared in Discord
+- **LinkedIn Post Creation**: Generate professional LinkedIn posts following specific style guidelines
+- **Persistent Memory**: Maintains conversation context per channel
+- **Health Monitoring**: Built-in health check endpoint for uptime monitoring
+- **Auto-Recovery**: Handles disconnections and errors gracefully
 
-## Prerequisites
+## Deployment
 
-- Node.js 16.x or higher
-- A Discord bot token
-- The bot must be invited to your server with proper permissions:
-  - Read Messages/View Channels
-  - Send Messages
-  - Read Message History
+**This bot runs exclusively on Render.** Local development is disabled to prevent Discord token conflicts.
 
-## Setup
+### Prerequisites
 
-1. Clone this repository:
-```bash
-git clone https://github.com/yourusername/discordmcp.git
-cd discordmcp
-```
+- Discord bot token (from Discord Developer Portal)
+- Anthropic API key
+- Render account
+- Optional: Brave Search API key for web search
 
-2. Install dependencies:
+## Setup (Render Only)
+
+1. Fork or clone this repository to your GitHub account
+
+2. Create a new Web Service on Render:
+   - Connect your GitHub repository
+   - Use the existing `render.yaml` configuration
+
+3. Set environment variables on Render:
+   - `DISCORD_TOKEN`: Your Discord bot token
+   - `ANTHROPIC_API_KEY`: Your Claude API key  
+   - `BRAVE_API_KEY`: (Optional) For web search
+
+4. Deploy and monitor:
+   - Check health at `https://your-app.onrender.com/health`
+   - Configure UptimeRobot to ping the health endpoint
+
+## Local Development
+
+**Local execution is intentionally disabled.** Do not create a `.env` file locally. All development should be tested through the Render deployment to maintain a single source of truth and prevent token conflicts.
+
+## Usage
+
+In Discord, mention the bot with your request:
+- `@bot what's the latest news about AI?`
+- `@bot create me a post about this design` (with image)
+- `@bot analyze this screenshot` (with image)
+- `@bot fetch https://example.com and summarize`
 ```bash
 npm install
 ```
