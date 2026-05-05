@@ -407,20 +407,31 @@ if (!process.env.ANTHROPIC_API_KEY) {
 console.log('Attempting to login to Discord...');
 console.log('Token exists:', !!process.env.DISCORD_TOKEN);
 console.log('Token length:', process.env.DISCORD_TOKEN?.length || 0);
+console.log('Token starts with:', process.env.DISCORD_TOKEN?.substring(0, 10) + '...');
 
-discord.login(process.env.DISCORD_TOKEN).catch((error) => {
-  console.error('Failed to login to Discord:', error.message || error);
-  
-  // Log more details about the error
-  if (error.code) console.error('Error code:', error.code);
-  if (error.response) console.error('Response:', error.response);
-  
-  console.log('Retrying in 5 seconds...');
-  setTimeout(() => {
-    discord.login(process.env.DISCORD_TOKEN).catch((retryError) => {
-      console.error('Retry failed:', retryError.message || retryError);
-      // Keep running but disconnected so health check shows the issue
-      // process.exit(1);
-    });
-  }, 5000);
-});
+discord.login(process.env.DISCORD_TOKEN)
+  .then(() => {
+    console.log('Login promise resolved successfully');
+  })
+  .catch((error) => {
+    console.error('Failed to login to Discord:', error.message || error);
+    console.error('Full error:', JSON.stringify(error, null, 2));
+    
+    // Log more details about the error
+    if (error.code) console.error('Error code:', error.code);
+    if (error.response) console.error('Response:', error.response);
+    
+    console.log('Retrying in 5 seconds...');
+    setTimeout(() => {
+      discord.login(process.env.DISCORD_TOKEN)
+        .then(() => {
+          console.log('Retry successful!');
+        })
+        .catch((retryError) => {
+          console.error('Retry failed:', retryError.message || retryError);
+          console.error('Full retry error:', JSON.stringify(retryError, null, 2));
+          // Keep running but disconnected so health check shows the issue
+          // process.exit(1);
+        });
+    }, 5000);
+  });
