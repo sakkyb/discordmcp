@@ -409,29 +409,43 @@ console.log('Token exists:', !!process.env.DISCORD_TOKEN);
 console.log('Token length:', process.env.DISCORD_TOKEN?.length || 0);
 console.log('Token starts with:', process.env.DISCORD_TOKEN?.substring(0, 10) + '...');
 
-discord.login(process.env.DISCORD_TOKEN)
+// Create a timeout promise
+const timeoutPromise = new Promise((_, reject) => {
+  setTimeout(() => reject(new Error('Login timeout after 30 seconds')), 30000);
+});
+
+// Race between login and timeout
+Promise.race([
+  discord.login(process.env.DISCORD_TOKEN),
+  timeoutPromise
+])
   .then(() => {
-    console.log('Login promise resolved successfully');
+    console.log('✅ Login promise resolved successfully');
+    console.log('Bot should now be online in Discord');
   })
   .catch((error) => {
-    console.error('Failed to login to Discord:', error.message || error);
-    console.error('Full error:', JSON.stringify(error, null, 2));
+    isConnected = false;
+    console.error('❌ Failed to login to Discord:', error.message || error);
     
-    // Log more details about the error
-    if (error.code) console.error('Error code:', error.code);
-    if (error.response) console.error('Response:', error.response);
+    if (error.message && error.message.includes('timeout')) {
+      console.error('The login attempt timed out - Discord API may be unreachable');
+    } else if (error.message && error.message.includes('token')) {
+      console.error('Token appears to be invalid or malformed');
+    } else {
+      console.error('Full error details:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+    }
     
-    console.log('Retrying in 5 seconds...');
+    console.log('Will retry in 10 seconds...');
     setTimeout(() => {
+      console.log('Attempting retry...');
       discord.login(process.env.DISCORD_TOKEN)
         .then(() => {
-          console.log('Retry successful!');
+          console.log('✅ Retry successful!');
+          isConnected = true;
         })
         .catch((retryError) => {
-          console.error('Retry failed:', retryError.message || retryError);
-          console.error('Full retry error:', JSON.stringify(retryError, null, 2));
-          // Keep running but disconnected so health check shows the issue
-          // process.exit(1);
+          console.error('❌ Retry also failed:', retryError.message || retryError);
+          isConnected = false;
         });
-    }, 5000);
+    }, 10000);
   });
