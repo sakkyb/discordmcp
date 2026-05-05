@@ -119,8 +119,8 @@ Remember to:
 Provide the post and then list 3 alternative hook/second line combinations.`;
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
+      model: 'claude-opus-4-7',
+      max_tokens: 1500,
       messages: [{ role: 'user', content: prompt }],
     });
 
@@ -326,8 +326,8 @@ discord.on(Events.MessageCreate, async (message: Message) => {
 
   try {
     const finalMessage = await anthropic.beta.messages.toolRunner({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
+      model: 'claude-opus-4-7',
+      max_tokens: 1500,
       system: SYSTEM_PROMPT,
       tools,
       messages: history,
@@ -346,12 +346,28 @@ discord.on(Events.MessageCreate, async (message: Message) => {
       return;
     }
 
-    if (reply.length <= 2000) {
+    if (reply.length <= 1900) {
       await message.reply(reply);
     } else {
-      const chunks = reply.match(/[\s\S]{1,2000}/g) ?? [];
-      for (const chunk of chunks) {
-        await message.reply(chunk);
+      // Split into chunks at natural break points
+      const chunks = [];
+      let current = '';
+      const lines = reply.split('\n');
+      
+      for (const line of lines) {
+        if (current.length + line.length + 1 <= 1900) {
+          current += (current ? '\n' : '') + line;
+        } else {
+          if (current) chunks.push(current);
+          current = line;
+        }
+      }
+      if (current) chunks.push(current);
+      
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const prefix = i === 0 ? '' : `**(${i + 1}/${chunks.length})**\n`;
+        await message.reply(prefix + chunk);
       }
     }
   } catch (error) {
