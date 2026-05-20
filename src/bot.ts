@@ -158,10 +158,64 @@ const fetchUrlTool = betaZodTool({
   },
 });
 
+const NOTION_API_VERSION = '2022-06-28';
+const NOTION_CONTENT_SCHEDULE_TYPES = [
+  'Everyday UX (Tuesday)',
+  'AI/UX Opinion (Wednesday)',
+  'Video (Thursday)',
+  'Design inspo',
+  'Meme (Sunday)',
+  'Personal life',
+] as const;
+
+// Tool: add a new idea row to the Notion "Content schedule" database
+const addToContentScheduleTool = betaZodTool({
+  name: 'add_to_content_schedule',
+  description: 'Add a new content idea row to the Notion "Content schedule" database. Use when the user wants to save a post idea, dump an idea into Notion, or asks to populate the content table.',
+  inputSchema: z.object({
+    postName: z.string().describe('Working title for the post idea — short and concrete'),
+    type: z.enum(NOTION_CONTENT_SCHEDULE_TYPES).optional().describe('Content category, classified from the input. Pick the closest match.'),
+    date: z.string().optional().describe('Target publish date in YYYY-MM-DD format. Only set if the user mentioned a specific or relative date (resolve relative dates like "next Tuesday" to absolute).'),
+    inspiredByUrl: z.string().url().optional().describe('Source URL the idea was inspired by, only if a URL was provided.'),
+  }),
+  run: async ({ postName, type, date, inspiredByUrl }) => {
+    const properties: Record<string, any> = {
+      'Post name': { title: [{ text: { content: postName } }] },
+    };
+    if (type) properties.Type = { select: { name: type } };
+    if (date) properties.Date = { date: { start: date } };
+    if (inspiredByUrl) properties['Inspired by'] = { url: inspiredByUrl };
+
+    const res = await fetch('https://api.notion.com/v1/pages', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.NOTION_TOKEN}`,
+        'Notion-Version': NOTION_API_VERSION,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        parent: { database_id: process.env.NOTION_DATABASE_ID },
+        properties,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      return `Notion API error (${res.status}): ${errText.slice(0, 400)}`;
+    }
+    const data = await res.json() as any;
+    return `Added "${postName}" to Content schedule.${data.url ? ` ${data.url}` : ''}`;
+  },
+});
+
+const hasNotion = !!(process.env.NOTION_TOKEN && process.env.NOTION_DATABASE_ID);
+
 const tools = [
   ...(process.env.BRAVE_API_KEY ? [webSearchTool] : []),
   fetchUrlTool,
   createLinkedInPostTool,
+  ...(hasNotion ? [addToContentScheduleTool] : []),
 ];
 
 const SYSTEM_PROMPT = `You are a helpful assistant in a Discord server. You have tools to browse the internet, fetch URLs, and create LinkedIn posts.
@@ -171,6 +225,8 @@ You can also see and analyze images that users share with you. When users share 
 When users ask about current events, websites, Reddit, or anything that requires live data — use your tools to look it up rather than saying you can't.
 
 When users ask you to "create a post" or "create me a post" with any input (image, URL, text), use the create_linkedin_post tool to generate a professional LinkedIn post following the specific style guidelines.
+
+When users ask you to "add this to Notion", "save this idea", "populate the content table", or similar, call add_to_content_schedule. Classify the Type field from the content (e.g. AI commentary → "AI/UX Opinion (Wednesday)", real-world UX observation → "Everyday UX (Tuesday)"). Reply with the Notion page URL the tool returns so the user can click straight to it.
 
 Keep responses concise and conversational. Use Discord markdown formatting where appropriate (bold with **text**, code with \`code\`). Responses must be under 1900 characters — summarise if needed.`;
 
@@ -211,6 +267,7 @@ discord.once(Events.ClientReady, (client) => {
   console.log('URL fetching: enabled');
   console.log('LinkedIn post creation: enabled');
   console.log('Image analysis: enabled');
+  console.log(`Notion content schedule: ${hasNotion ? 'enabled' : 'disabled — set NOTION_TOKEN and NOTION_DATABASE_ID to enable'}`);
 });
 
 // Handle disconnection and reconnection
