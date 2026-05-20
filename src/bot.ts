@@ -168,23 +168,49 @@ const NOTION_CONTENT_SCHEDULE_TYPES = [
   'Personal life',
 ] as const;
 
+function draftToNotionBlocks(draftBody: string) {
+  const paragraphs = draftBody.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+  const blocks: any[] = [];
+  for (const p of paragraphs) {
+    for (let i = 0; i < p.length; i += 2000) {
+      blocks.push({
+        object: 'block',
+        type: 'paragraph',
+        paragraph: {
+          rich_text: [{ type: 'text', text: { content: p.slice(i, i + 2000) } }],
+        },
+      });
+    }
+  }
+  return blocks.slice(0, 100);
+}
+
 // Tool: add a new idea row to the Notion "Content schedule" database
 const addToContentScheduleTool = betaZodTool({
   name: 'add_to_content_schedule',
-  description: 'Add a new content idea row to the Notion "Content schedule" database. Use when the user wants to save a post idea, dump an idea into Notion, or asks to populate the content table.',
+  description: 'Add a new content idea row to the Notion "Content schedule" database. Use when the user wants to save a post idea, dump an idea into Notion, or asks to populate the content table. If you have drafted post content, pass it as draftBody so it lives inside the Notion page body.',
   inputSchema: z.object({
     postName: z.string().describe('Working title for the post idea — short and concrete'),
     type: z.enum(NOTION_CONTENT_SCHEDULE_TYPES).optional().describe('Content category, classified from the input. Pick the closest match.'),
     date: z.string().optional().describe('Target publish date in YYYY-MM-DD format. Only set if the user mentioned a specific or relative date (resolve relative dates like "next Tuesday" to absolute).'),
     inspiredByUrl: z.string().url().optional().describe('Source URL the idea was inspired by, only if a URL was provided.'),
+    draftBody: z.string().optional().describe('Full draft post content, formatted as it should appear when typed into the Notion page (hook + body + any alternative hooks/notes). Preserve paragraph breaks with blank lines. Do NOT include Discord-specific markdown like leading ">" quote markers — write it as if typing directly into Notion.'),
   }),
-  run: async ({ postName, type, date, inspiredByUrl }) => {
+  run: async ({ postName, type, date, inspiredByUrl, draftBody }) => {
     const properties: Record<string, any> = {
       'Post name': { title: [{ text: { content: postName } }] },
     };
     if (type) properties.Type = { select: { name: type } };
     if (date) properties.Date = { date: { start: date } };
     if (inspiredByUrl) properties['Inspired by'] = { url: inspiredByUrl };
+
+    const body: Record<string, any> = {
+      parent: { database_id: process.env.NOTION_DATABASE_ID },
+      properties,
+    };
+    if (draftBody && draftBody.trim()) {
+      body.children = draftToNotionBlocks(draftBody);
+    }
 
     const res = await fetch('https://api.notion.com/v1/pages', {
       method: 'POST',
@@ -193,10 +219,7 @@ const addToContentScheduleTool = betaZodTool({
         'Notion-Version': NOTION_API_VERSION,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        parent: { database_id: process.env.NOTION_DATABASE_ID },
-        properties,
-      }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(15000),
     });
 
@@ -205,7 +228,8 @@ const addToContentScheduleTool = betaZodTool({
       return `Notion API error (${res.status}): ${errText.slice(0, 400)}`;
     }
     const data = await res.json() as any;
-    return `Added "${postName}" to Content schedule.${data.url ? ` ${data.url}` : ''}`;
+    const draftedNote = draftBody && draftBody.trim() ? ' with draft body' : '';
+    return `Added "${postName}" to Content schedule${draftedNote}.${data.url ? ` ${data.url}` : ''}`;
   },
 });
 
@@ -226,7 +250,7 @@ When users ask about current events, websites, Reddit, or anything that requires
 
 When users ask you to "create a post" or "create me a post" with any input (image, URL, text), use the create_linkedin_post tool to generate a professional LinkedIn post following the specific style guidelines.
 
-When users ask you to "add this to Notion", "save this idea", "populate the content table", or similar, call add_to_content_schedule. Classify the Type field from the content (e.g. AI commentary → "AI/UX Opinion (Wednesday)", real-world UX observation → "Everyday UX (Tuesday)"). Reply with the Notion page URL the tool returns so the user can click straight to it.
+When users ask you to "add this to Notion", "save this idea", "populate the content table", or similar, call add_to_content_schedule. Classify the Type field from the content (e.g. AI commentary → "AI/UX Opinion (Wednesday)", real-world UX observation → "Everyday UX (Tuesday)"). If you also draft a full LinkedIn post (via create_linkedin_post or inline), pass the complete draft — hook, body, and any alternative hooks/notes — as draftBody so the draft lives inside the Notion page body. You can still show the draft in Discord as usual; the draftBody parameter is what gets it into Notion. Always reply with the Notion page URL the tool returns so the user can click straight in.
 
 Keep responses concise and conversational. Use Discord markdown formatting where appropriate (bold with **text**, code with \`code\`). Responses must be under 1900 characters — summarise if needed.`;
 
