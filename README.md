@@ -1,23 +1,21 @@
-# Discord Claude Bot (Railway Deployment)
+# Discord Claude Bot (Mac Mini Deployment)
 
-A Discord bot powered by Claude Opus 4.7 that can browse the web, analyze images, and create LinkedIn posts. Deployed on Railway for 24/7 availability with robust error handling and monitoring.
+A Discord bot powered by Claude that can browse the web, analyze images, and create LinkedIn posts. Runs 24/7 as a local `launchd` service on a Mac Mini, with automatic restarts and startup-on-boot.
 
 ## Features
 
 - **LinkedIn Post Creation**: Generate professional LinkedIn posts using Sakky's v2 style guidelines
-- **Image Analysis**: View, understand, and analyze images shared in Discord 
+- **Image Analysis**: View, understand, and analyze images shared in Discord
 - **Web Browsing**: Fetch and summarize webpage content
 - **Persistent Memory**: Maintains conversation context per Discord channel
-- **Health Monitoring**: Built-in `/health` endpoint for uptime monitoring
+- **Health Monitoring**: Built-in `/health` endpoint
 - **Auto-Recovery**: Handles disconnections and errors gracefully
 - **Multi-part Responses**: Automatically splits long responses across multiple messages
 
 ## Live Bot
 
 - **Name**: claudius maximus 2.0
-- **Health Check**: https://discord-claude-bot-production.up.railway.app/health
-- **Model**: Claude Opus 4.7
-- **Hosting**: Railway
+- **Hosting**: Mac Mini (local, always-on)
 
 ## Usage
 
@@ -28,7 +26,7 @@ In Discord, mention the bot with your request:
 - `@claudius maximus 2.0 draft me a post about [topic] - [URL]`
 - Upload an image + `@claudius maximus 2.0 create me a post about this design`
 
-### Web Browsing  
+### Web Browsing
 - `@claudius maximus 2.0 what's the latest news about AI?`
 - `@claudius maximus 2.0 fetch https://example.com and summarize`
 
@@ -37,31 +35,99 @@ In Discord, mention the bot with your request:
 - `@claudius maximus 2.0 what's in this image?` (with image)
 
 ### General Chat
-- `@claudius maximus 2.0 hello` 
+- `@claudius maximus 2.0 hello`
 - `@claudius maximus 2.0 explain quantum computing`
 
 ## Deployment Architecture
 
-**Platform**: Railway (switched from Render due to IP blocking issues)
-**No Local Development**: Prevents Discord token conflicts
-**Auto-Deploy**: Pushes to main branch trigger deployments
-**Monitoring**: UptimeRobot pings health endpoint every 5 minutes
+**Platform**: Mac Mini, running locally via `launchd`
+**Connection model**: The bot makes an outbound WebSocket connection to Discord's gateway — no port forwarding, static IP, or domain is required for it to work anywhere in the world.
+**Process management**: `launchd` starts the bot at boot and restarts it automatically if it crashes.
+**No other host runs this bot**: only ever run one instance at a time — a duplicate instance with the same `DISCORD_TOKEN` will conflict with this one.
+
+## Setup on the Mac Mini
+
+1. Install Node.js (v20+) if you don't have it:
+   ```bash
+   brew install node
+   ```
+
+2. Clone the repo and install dependencies:
+   ```bash
+   git clone <this-repo-url>
+   cd discordmcp
+   npm install
+   ```
+
+3. Create your `.env` file from the example and fill in your secrets:
+   ```bash
+   cp .env.example .env
+   ```
+
+4. Build the project:
+   ```bash
+   npm run build
+   ```
+
+5. Install it as a `launchd` service (starts now, and on every boot):
+   ```bash
+   ./scripts/setup-mac.sh
+   ```
+   This also disables system sleep (`pmset`) so the process keeps running while the lid is closed or the Mini is idle. Sudo is required for that step.
+
+That's it — mention the bot in Discord and it should respond.
+
+### Checking status
+
+```bash
+launchctl list | grep com.sakky.discordbot   # confirm it's running
+tail -f logs/bot.out.log                     # follow logs
+tail -f logs/bot.err.log                     # follow error logs
+curl http://localhost:3000/health            # health check
+```
+
+### Stopping / restarting
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.sakky.discordbot.plist   # stop
+launchctl load ~/Library/LaunchAgents/com.sakky.discordbot.plist     # start
+```
+
+### Uninstalling the service
+
+```bash
+./scripts/uninstall-mac.sh
+```
+
+### Updating the bot
+
+```bash
+git pull
+npm install
+npm run build
+launchctl unload ~/Library/LaunchAgents/com.sakky.discordbot.plist
+launchctl load ~/Library/LaunchAgents/com.sakky.discordbot.plist
+```
 
 ## Environment Variables
 
-Required on Railway:
+See `.env.example`. Required:
 - `DISCORD_TOKEN`: Bot token from Discord Developer Portal
 - `ANTHROPIC_API_KEY`: Claude API key
-- `BRAVE_API_KEY`: (Optional) For enhanced web search
+
+Optional:
+- `BRAVE_API_KEY`: enables the web search tool
+- `NOTION_TOKEN` / `NOTION_DATABASE_ID`: enables saving LinkedIn posts to Notion
+- `PORT`: port for the local health endpoint (defaults to 3000)
 
 ## Health Check
 
-The bot exposes a health endpoint at `/health` that returns:
+The bot exposes a health endpoint at `/health` (local only, `http://localhost:3000/health` by default) that returns:
 
 ```json
 {
   "status": "healthy",
-  "discord": "connected", 
+  "discord": "connected",
   "uptime": 1234,
   "lastActivity": "2026-05-05T11:21:19.700Z",
   "memoryUsage": "22MB"
@@ -83,35 +149,17 @@ The bot uses Sakky's LinkedIn Post Generator v2 guidelines for:
 ## Technical Details
 
 - **Node.js** with TypeScript
-- **Discord.js** for Discord API integration  
+- **Discord.js** for Discord API integration
 - **Anthropic SDK** for Claude integration
 - **Automatic message splitting** for responses >1900 characters
 - **Error handling** with specific error types (rate limits, timeouts, token issues)
 - **Conversation memory** management (max 20 messages per channel, 100 channels max)
 
-## Development
-
-**Local development is intentionally disabled** to prevent Discord token conflicts. All changes should be:
-
-1. Made in code
-2. Committed to GitHub
-3. Tested via Railway deployment
-
-## Monitoring Setup
-
-Configure UptimeRobot to monitor:
-- **URL**: https://discord-claude-bot-production.up.railway.app/health  
-- **Method**: HTTP GET
-- **Interval**: 5 minutes
-- **Keyword**: "healthy" (optional)
-
-This keeps Railway from sleeping the service and provides downtime alerts.
-
 ## Bot Permissions
 
 The bot requires these Discord permissions:
 - View Channels
-- Send Messages  
+- Send Messages
 - Read Message History
 - Attach Files
 - Embed Links
