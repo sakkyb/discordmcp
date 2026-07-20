@@ -14,6 +14,25 @@ const __dirname = dirname(__filename);
 
 dotenv.config();
 
+// Discord's declared attachment.contentType can be wrong (e.g. reports
+// image/webp for bytes that are actually PNG), which Claude's API rejects.
+// Sniff the real format from magic bytes instead of trusting the label.
+function detectImageMediaType(buffer: Buffer): string | null {
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return 'image/png';
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (buffer.length >= 6 && (buffer.subarray(0, 6).toString('ascii') === 'GIF87a' || buffer.subarray(0, 6).toString('ascii') === 'GIF89a')) {
+    return 'image/gif';
+  }
+  if (buffer.length >= 12 && buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+    return 'image/webp';
+  }
+  return null;
+}
+
 // Track bot connection status
 let isConnected = false;
 let lastActivity = Date.now();
@@ -79,8 +98,53 @@ const webSearchTool = betaZodTool({
   },
 });
 
-// Tool: create LinkedIn post
-const createLinkedInPostTool = betaZodTool({
+// Humanizer skill (vendored from github.com/blader/humanizer) — strips
+// AI-writing tells from generated content so posts read as human-written.
+const HUMANIZER_SKILL_PATH = path.join(__dirname, '..', 'skills', 'humanizer.md');
+let humanizerSkill: string | null = null;
+function loadHumanizerSkill(): string {
+  if (humanizerSkill !== null) return humanizerSkill;
+  try {
+    humanizerSkill = fs.readFileSync(HUMANIZER_SKILL_PATH, 'utf-8');
+  } catch (error) {
+    console.error('Could not read humanizer skill:', error);
+    humanizerSkill = '';
+  }
+  return humanizerSkill;
+}
+
+// Run drafted content through the humanizer skill as a second pass.
+// Falls back to the original text if the skill is missing or the call fails.
+async function humanize(text: string, voiceSample?: string): Promise<string> {
+  const skill = loadHumanizerSkill();
+  if (!skill) return text;
+  try {
+    const prompt = `${skill}
+
+---
+
+Apply the humanizer skill above to the text below. Return ONLY the rewritten text — no preamble, no notes, no audit, no explanation. Preserve the author's meaning, structure, and any LinkedIn formatting (line breaks, hooks, alternative-hook lists).${voiceSample ? `\n\nMatch this author's voice:\n${voiceSample}` : ''}
+
+TEXT TO HUMANIZE:
+${text}`;
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-5',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    return response.content.find(b => b.type === 'text')?.text ?? text;
+  } catch (error) {
+    console.error('Humanizer pass failed, returning original draft:', error);
+    return text;
+  }
+}
+
+// Tool: create LinkedIn post.
+// The tool's return value is only visible to the model, not to the Discord
+// user. `onDraft` hands the finished post back to the handler so it can be
+// posted to the channel directly — otherwise the draft never reaches the user.
+const makeCreateLinkedInPostTool = (onDraft: (post: string) => void) => betaZodTool({
   name: 'create_linkedin_post',
   description: 'Generate a LinkedIn post based on provided content, images, URLs, or text following specific style guidelines',
   inputSchema: z.object({
@@ -88,8 +152,8 @@ const createLinkedInPostTool = betaZodTool({
     topic: z.string().optional().describe('Optional specific topic or theme for the post'),
   }),
   run: async ({ input, topic }) => {
-    // Read the LinkedIn post generator v2 guidelines
-    const guidelinesPath = '/Users/sakshatbaral/Documents/GitHub/life-master/life-hub/skills/linkedin-post-generator-v2.md';
+    // Read the LinkedIn post generator v2 guidelines (vendored in-repo)
+    const guidelinesPath = path.join(__dirname, '..', 'skills', 'linkedin-post-generator-v2.md');
     let guidelines = '';
     
     try {
@@ -119,13 +183,17 @@ Remember to:
 Provide the post and then list 3 alternative hook/second line combinations.`;
 
     const response = await anthropic.messages.create({
-      model: 'claude-opus-4-7',
+      model: 'claude-sonnet-5',
       max_tokens: 1500,
       messages: [{ role: 'user', content: prompt }],
     });
 
     const postContent = response.content.find(b => b.type === 'text')?.text ?? '';
-    return postContent;
+    // Second pass: strip AI-writing tells so the post reads as human-written.
+    // Use Sakky's exemplar cohort post from the guidelines as the voice sample.
+    const humanized = await humanize(postContent);
+    onDraft(humanized);
+    return humanized;
   },
 });
 
@@ -235,10 +303,10 @@ const addToContentScheduleTool = betaZodTool({
 
 const hasNotion = !!(process.env.NOTION_TOKEN && process.env.NOTION_DATABASE_ID);
 
-const tools = [
+const buildTools = (onDraft: (post: string) => void) => [
   ...(process.env.BRAVE_API_KEY ? [webSearchTool] : []),
   fetchUrlTool,
-  createLinkedInPostTool,
+  makeCreateLinkedInPostTool(onDraft),
   ...(hasNotion ? [addToContentScheduleTool] : []),
 ];
 
@@ -249,6 +317,10 @@ You can also see and analyze images that users share with you. When users share 
 When users ask about current events, websites, Reddit, or anything that requires live data — use your tools to look it up rather than saying you can't.
 
 When users ask you to "create a post" or "create me a post" with any input (image, URL, text), use the create_linkedin_post tool to generate a professional LinkedIn post following the specific style guidelines.
+
+DEFAULT TO DRAFTING. When a user shares an observation, example, screenshot, product detail, or "look at this" moment — even without explicitly saying "create a post" — treat what they've said as raw material for a LinkedIn post and call create_linkedin_post to draft one. This is a content-creation bot: shared observations are post ideas by default. Do NOT just analyze, describe, or discuss the thing and stop; lead with a drafted post. Only skip drafting when the user is clearly just chatting, asking a factual question, or explicitly asks you to only discuss/analyze. If genuinely unsure whether they want a post, draft one anyway and offer to adjust — draft first, ask later.
+
+The full post returned by create_linkedin_post is automatically shown to the user in Discord. Do NOT repeat or paste the post text in your own reply — just add a short note or follow-up question (e.g. offering to tweak it or save it to Notion). Never say things like "I drafted a post above" as your only response; the draft is posted for you, so keep your reply to brief commentary.
 
 When users ask you to "add this to Notion", "save this idea", "populate the content table", or similar, call add_to_content_schedule. Classify the Type field from the content (e.g. AI commentary → "AI/UX Opinion (Wednesday)", real-world UX observation → "Everyday UX (Tuesday)"). If you also draft a full LinkedIn post (via create_linkedin_post or inline), pass the complete draft — hook, body, and any alternative hooks/notes — as draftBody so the draft lives inside the Notion page body. You can still show the draft in Discord as usual; the draftBody parameter is what gets it into Notion. Always reply with the Notion page URL the tool returns so the user can click straight in.
 
@@ -325,6 +397,46 @@ discord.on(Events.Warn, (warning) => {
   console.warn('Discord warning:', warning);
 });
 
+type SendTarget = TextChannel | DMChannel | NewsChannel | ThreadChannel;
+
+// Send text to a Discord channel/thread, splitting into <1900-char chunks at
+// natural line breaks (Discord's hard message limit is 2000).
+async function sendChunked(target: SendTarget, text: string) {
+  if (text.length <= 1900) {
+    await target.send(text);
+    return;
+  }
+  const chunks: string[] = [];
+  let current = '';
+  for (const line of text.split('\n')) {
+    if (current.length + line.length + 1 <= 1800) {
+      current += (current ? '\n' : '') + line;
+    } else {
+      if (current) chunks.push(current);
+      current = line;
+      while (current.length > 1800) {
+        const splitPoint = current.lastIndexOf(' ', 1800);
+        if (splitPoint > 0) {
+          chunks.push(current.substring(0, splitPoint));
+          current = current.substring(splitPoint + 1);
+        } else {
+          chunks.push(current.substring(0, 1800));
+          current = current.substring(1800);
+        }
+      }
+    }
+  }
+  if (current) chunks.push(current);
+
+  for (let i = 0; i < chunks.length; i++) {
+    const prefix = chunks.length > 1 ? `**Part ${i + 1}/${chunks.length}:**\n` : '';
+    await target.send(prefix + chunks[i]);
+    if (i < chunks.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+}
+
 discord.on(Events.MessageCreate, async (message: Message) => {
   lastActivity = Date.now();
   
@@ -363,14 +475,15 @@ discord.on(Events.MessageCreate, async (message: Message) => {
       try {
         // Fetch the image
         const imageResponse = await fetch(attachment.url);
-        const imageBuffer = await imageResponse.arrayBuffer();
-        const base64Image = Buffer.from(imageBuffer).toString('base64');
-        
+        const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+        const base64Image = imageBuffer.toString('base64');
+        const mediaType = detectImageMediaType(imageBuffer) || attachment.contentType || 'image/jpeg';
+
         messageContent.push({
           type: 'image',
           source: {
             type: 'base64',
-            media_type: attachment.contentType || 'image/jpeg',
+            media_type: mediaType,
             data: base64Image
           }
         });
@@ -395,19 +508,46 @@ discord.on(Events.MessageCreate, async (message: Message) => {
   // Push structured content to history
   history.push({ role: 'user', content: messageContent });
 
+  // Reply inside a thread off the user's message rather than cluttering the
+  // channel. If we're already in a thread, or can't create one (permissions,
+  // DMs), fall back to sending in the current channel.
   const ch = message.channel;
+  let target: TextChannel | DMChannel | NewsChannel | ThreadChannel = ch as any;
+  if (ch instanceof ThreadChannel) {
+    target = ch;
+  } else if ((ch instanceof TextChannel || ch instanceof NewsChannel)) {
+    if (message.hasThread && message.thread) {
+      target = message.thread;
+    } else {
+      try {
+        target = await message.startThread({
+          name: (content || 'claudius reply').slice(0, 90),
+          autoArchiveDuration: 1440,
+        });
+      } catch (threadError) {
+        console.error('Could not start thread, replying in channel instead:', threadError);
+        target = ch;
+      }
+    }
+  }
+
   if (
-    ch instanceof TextChannel ||
-    ch instanceof DMChannel ||
-    ch instanceof NewsChannel ||
-    ch instanceof ThreadChannel
+    target instanceof TextChannel ||
+    target instanceof DMChannel ||
+    target instanceof NewsChannel ||
+    target instanceof ThreadChannel
   ) {
-    await ch.sendTyping();
+    await target.sendTyping();
   }
 
   try {
+    // Capture any LinkedIn drafts the tool produces; the tool's return value
+    // is only seen by the model, so we post the draft to Discord ourselves.
+    const drafts: string[] = [];
+    const tools = buildTools((post) => drafts.push(post));
+
     const finalMessage = await anthropic.beta.messages.toolRunner({
-      model: 'claude-opus-4-7',
+      model: 'claude-sonnet-5',
       max_tokens: 1500,
       system: SYSTEM_PROMPT,
       tools,
@@ -422,52 +562,15 @@ discord.on(Events.MessageCreate, async (message: Message) => {
       history.splice(0, history.length - MAX_HISTORY);
     }
 
-    if (!reply) {
-      await message.reply('I processed your request but had nothing to say.');
-      return;
+    // Post any drafted posts first — they are not part of the model's reply.
+    for (const draft of drafts) {
+      await sendChunked(target, draft);
     }
 
-    if (reply.length <= 1900) {
-      await message.reply(reply);
-    } else {
-      // Split into chunks at natural break points
-      const chunks = [];
-      let current = '';
-      const lines = reply.split('\n');
-      
-      for (const line of lines) {
-        if (current.length + line.length + 1 <= 1800) { // Leave more room for numbering
-          current += (current ? '\n' : '') + line;
-        } else {
-          if (current) chunks.push(current);
-          current = line;
-          
-          // Handle very long lines by splitting them
-          while (current.length > 1800) {
-            const splitPoint = current.lastIndexOf(' ', 1800);
-            if (splitPoint > 0) {
-              chunks.push(current.substring(0, splitPoint));
-              current = current.substring(splitPoint + 1);
-            } else {
-              chunks.push(current.substring(0, 1800));
-              current = current.substring(1800);
-            }
-          }
-        }
-      }
-      if (current) chunks.push(current);
-      
-      // Send all chunks
-      for (let i = 0; i < chunks.length; i++) {
-        const chunk = chunks[i];
-        const prefix = chunks.length > 1 ? `**Part ${i + 1}/${chunks.length}:**\n` : '';
-        await message.reply(prefix + chunk);
-        
-        // Small delay between chunks to avoid rate limiting
-        if (i < chunks.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-      }
+    if (reply) {
+      await sendChunked(target, reply);
+    } else if (drafts.length === 0) {
+      await target.send('I processed your request but had nothing to say.');
     }
   } catch (error) {
     console.error('Error processing message:', error);
@@ -488,7 +591,7 @@ discord.on(Events.MessageCreate, async (message: Message) => {
     }
     
     try {
-      await message.reply(errorMessage);
+      await target.send(errorMessage);
     } catch (replyError) {
       console.error('Failed to send error message:', replyError);
     }
