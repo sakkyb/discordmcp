@@ -66,7 +66,6 @@ The image is supporting context. The second line does not need to describe it.
 - Context: brief setup of the conventional approach.
 - The Reveal: specific examples with real product details (screenshots, exact copy).
 - The Breakdown: tactical bullets explaining why it works.
-- The Application: 3 concrete ways to implement, numbered list.
 - The Closer: thought-provoking question that invites expertise sharing.
 
 There will usually be an image attached, which should introduce the concept of the post, not fully explain everything.
@@ -148,6 +147,8 @@ Position me as someone who:
 
 Max 150 words and assume there is video/visual support, I will upload this to give further context. Always end with a call to action, without being engagement bait.
 
+FORMATTING: Put every sentence on its own line, with a blank line between each one. This one-sentence-per-line spacing makes the post easy to read while scrolling on mobile.
+
 Ensure ALL posts have:
 
 - Conversation fuel: they spark "I've seen this too" replies and counter-examples.
@@ -182,6 +183,7 @@ Body:
 I smiled, sat back and just listened.
 
 Josh, after connecting an AI prototype to a real data source.
+
 Jemie, in Dubai, redesigning a ride flow for [Careem](https://www.careem.com): "I started at 9. By 11 I had a prototype."
 
 The best moment wasn't anything I said.
@@ -189,7 +191,9 @@ The best moment wasn't anything I said.
 It was watching everyone inspire each other.
 
 Josh sees Jemie's prompt.
+
 Jemie sees Josh's data connection.
+
 Manny brings stories from the Flash era.
 
 Three designers. Different companies. Different cities.
