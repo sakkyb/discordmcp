@@ -314,6 +314,8 @@ When users ask about current events, websites, Reddit, or anything that requires
 
 When users ask you to "create a post" or "create me a post" with any input (image, URL, text), use the create_linkedin_post tool to generate a professional LinkedIn post following the specific style guidelines.
 
+DEFAULT TO DRAFTING. When a user shares an observation, example, screenshot, product detail, or "look at this" moment — even without explicitly saying "create a post" — treat what they've said as raw material for a LinkedIn post and call create_linkedin_post to draft one. This is a content-creation bot: shared observations are post ideas by default. Do NOT just analyze, describe, or discuss the thing and stop; lead with a drafted post. Only skip drafting when the user is clearly just chatting, asking a factual question, or explicitly asks you to only discuss/analyze. If genuinely unsure whether they want a post, draft one anyway and offer to adjust — draft first, ask later.
+
 When users ask you to "add this to Notion", "save this idea", "populate the content table", or similar, call add_to_content_schedule. Classify the Type field from the content (e.g. AI commentary → "AI/UX Opinion (Wednesday)", real-world UX observation → "Everyday UX (Tuesday)"). If you also draft a full LinkedIn post (via create_linkedin_post or inline), pass the complete draft — hook, body, and any alternative hooks/notes — as draftBody so the draft lives inside the Notion page body. You can still show the draft in Discord as usual; the draftBody parameter is what gets it into Notion. Always reply with the Notion page URL the tool returns so the user can click straight in.
 
 Keep responses concise and conversational. Use Discord markdown formatting where appropriate (bold with **text**, code with \`code\`). Responses must be under 1900 characters — summarise if needed.`;
@@ -460,14 +462,36 @@ discord.on(Events.MessageCreate, async (message: Message) => {
   // Push structured content to history
   history.push({ role: 'user', content: messageContent });
 
+  // Reply inside a thread off the user's message rather than cluttering the
+  // channel. If we're already in a thread, or can't create one (permissions,
+  // DMs), fall back to sending in the current channel.
   const ch = message.channel;
+  let target: TextChannel | DMChannel | NewsChannel | ThreadChannel = ch as any;
+  if (ch instanceof ThreadChannel) {
+    target = ch;
+  } else if ((ch instanceof TextChannel || ch instanceof NewsChannel)) {
+    if (message.hasThread && message.thread) {
+      target = message.thread;
+    } else {
+      try {
+        target = await message.startThread({
+          name: (content || 'claudius reply').slice(0, 90),
+          autoArchiveDuration: 1440,
+        });
+      } catch (threadError) {
+        console.error('Could not start thread, replying in channel instead:', threadError);
+        target = ch;
+      }
+    }
+  }
+
   if (
-    ch instanceof TextChannel ||
-    ch instanceof DMChannel ||
-    ch instanceof NewsChannel ||
-    ch instanceof ThreadChannel
+    target instanceof TextChannel ||
+    target instanceof DMChannel ||
+    target instanceof NewsChannel ||
+    target instanceof ThreadChannel
   ) {
-    await ch.sendTyping();
+    await target.sendTyping();
   }
 
   try {
@@ -488,12 +512,12 @@ discord.on(Events.MessageCreate, async (message: Message) => {
     }
 
     if (!reply) {
-      await message.reply('I processed your request but had nothing to say.');
+      await target.send('I processed your request but had nothing to say.');
       return;
     }
 
     if (reply.length <= 1900) {
-      await message.reply(reply);
+      await target.send(reply);
     } else {
       // Split into chunks at natural break points
       const chunks = [];
@@ -526,7 +550,7 @@ discord.on(Events.MessageCreate, async (message: Message) => {
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         const prefix = chunks.length > 1 ? `**Part ${i + 1}/${chunks.length}:**\n` : '';
-        await message.reply(prefix + chunk);
+        await target.send(prefix + chunk);
         
         // Small delay between chunks to avoid rate limiting
         if (i < chunks.length - 1) {
@@ -553,7 +577,7 @@ discord.on(Events.MessageCreate, async (message: Message) => {
     }
     
     try {
-      await message.reply(errorMessage);
+      await target.send(errorMessage);
     } catch (replyError) {
       console.error('Failed to send error message:', replyError);
     }
