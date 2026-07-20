@@ -14,6 +14,25 @@ const __dirname = dirname(__filename);
 
 dotenv.config();
 
+// Discord's declared attachment.contentType can be wrong (e.g. reports
+// image/webp for bytes that are actually PNG), which Claude's API rejects.
+// Sniff the real format from magic bytes instead of trusting the label.
+function detectImageMediaType(buffer: Buffer): string | null {
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return 'image/png';
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (buffer.length >= 6 && (buffer.subarray(0, 6).toString('ascii') === 'GIF87a' || buffer.subarray(0, 6).toString('ascii') === 'GIF89a')) {
+    return 'image/gif';
+  }
+  if (buffer.length >= 12 && buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+    return 'image/webp';
+  }
+  return null;
+}
+
 // Track bot connection status
 let isConnected = false;
 let lastActivity = Date.now();
@@ -79,6 +98,48 @@ const webSearchTool = betaZodTool({
   },
 });
 
+// Humanizer skill (vendored from github.com/blader/humanizer) — strips
+// AI-writing tells from generated content so posts read as human-written.
+const HUMANIZER_SKILL_PATH = path.join(__dirname, '..', 'skills', 'humanizer.md');
+let humanizerSkill: string | null = null;
+function loadHumanizerSkill(): string {
+  if (humanizerSkill !== null) return humanizerSkill;
+  try {
+    humanizerSkill = fs.readFileSync(HUMANIZER_SKILL_PATH, 'utf-8');
+  } catch (error) {
+    console.error('Could not read humanizer skill:', error);
+    humanizerSkill = '';
+  }
+  return humanizerSkill;
+}
+
+// Run drafted content through the humanizer skill as a second pass.
+// Falls back to the original text if the skill is missing or the call fails.
+async function humanize(text: string, voiceSample?: string): Promise<string> {
+  const skill = loadHumanizerSkill();
+  if (!skill) return text;
+  try {
+    const prompt = `${skill}
+
+---
+
+Apply the humanizer skill above to the text below. Return ONLY the rewritten text — no preamble, no notes, no audit, no explanation. Preserve the author's meaning, structure, and any LinkedIn formatting (line breaks, hooks, alternative-hook lists).${voiceSample ? `\n\nMatch this author's voice:\n${voiceSample}` : ''}
+
+TEXT TO HUMANIZE:
+${text}`;
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-5',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    return response.content.find(b => b.type === 'text')?.text ?? text;
+  } catch (error) {
+    console.error('Humanizer pass failed, returning original draft:', error);
+    return text;
+  }
+}
+
 // Tool: create LinkedIn post
 const createLinkedInPostTool = betaZodTool({
   name: 'create_linkedin_post',
@@ -88,8 +149,8 @@ const createLinkedInPostTool = betaZodTool({
     topic: z.string().optional().describe('Optional specific topic or theme for the post'),
   }),
   run: async ({ input, topic }) => {
-    // Read the LinkedIn post generator v2 guidelines
-    const guidelinesPath = '/Users/sakshatbaral/Documents/GitHub/life-master/life-hub/skills/linkedin-post-generator-v2.md';
+    // Read the LinkedIn post generator v2 guidelines (vendored in-repo)
+    const guidelinesPath = path.join(__dirname, '..', 'skills', 'linkedin-post-generator-v2.md');
     let guidelines = '';
     
     try {
@@ -119,13 +180,16 @@ Remember to:
 Provide the post and then list 3 alternative hook/second line combinations.`;
 
     const response = await anthropic.messages.create({
-      model: 'claude-opus-4-7',
+      model: 'claude-sonnet-5',
       max_tokens: 1500,
       messages: [{ role: 'user', content: prompt }],
     });
 
     const postContent = response.content.find(b => b.type === 'text')?.text ?? '';
-    return postContent;
+    // Second pass: strip AI-writing tells so the post reads as human-written.
+    // Use Sakky's exemplar cohort post from the guidelines as the voice sample.
+    const humanized = await humanize(postContent);
+    return humanized;
   },
 });
 
@@ -363,14 +427,15 @@ discord.on(Events.MessageCreate, async (message: Message) => {
       try {
         // Fetch the image
         const imageResponse = await fetch(attachment.url);
-        const imageBuffer = await imageResponse.arrayBuffer();
-        const base64Image = Buffer.from(imageBuffer).toString('base64');
-        
+        const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+        const base64Image = imageBuffer.toString('base64');
+        const mediaType = detectImageMediaType(imageBuffer) || attachment.contentType || 'image/jpeg';
+
         messageContent.push({
           type: 'image',
           source: {
             type: 'base64',
-            media_type: attachment.contentType || 'image/jpeg',
+            media_type: mediaType,
             data: base64Image
           }
         });
@@ -407,7 +472,7 @@ discord.on(Events.MessageCreate, async (message: Message) => {
 
   try {
     const finalMessage = await anthropic.beta.messages.toolRunner({
-      model: 'claude-opus-4-7',
+      model: 'claude-sonnet-5',
       max_tokens: 1500,
       system: SYSTEM_PROMPT,
       tools,
