@@ -42,6 +42,13 @@ export const config = {
   get headless(): boolean {
     return process.env.HEADLESS === 'true';
   },
+  // whatsapp-web.js drives Chrome via puppeteer. We point it at the system
+  // Google Chrome (a universal binary → runs natively on arm64) instead of
+  // puppeteer's bundled Chromium — more robust and matches the LinkedIn
+  // scraper, which also uses real Chrome. Override via CHROME_PATH if needed.
+  get chromePath(): string {
+    return process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  },
 };
 
 // Fail fast on missing configuration before doing anything expensive

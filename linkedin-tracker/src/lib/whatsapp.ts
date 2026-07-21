@@ -1,4 +1,4 @@
-import { WHATSAPP_SESSION_DIR } from './config.js';
+import { WHATSAPP_SESSION_DIR, config } from './config.js';
 
 // whatsapp-web.js is CommonJS; import dynamically to keep ESM happy.
 // The client is only spun up when there's actually something to send —
@@ -9,7 +9,7 @@ export async function sendToGroup(groupName: string, message: string): Promise<v
 
   const client = new Client({
     authStrategy: new LocalAuth({ dataPath: WHATSAPP_SESSION_DIR }),
-    puppeteer: { headless: true, args: ['--no-sandbox'] },
+    puppeteer: { headless: true, executablePath: config.chromePath, args: ['--no-sandbox'] },
   });
 
   try {

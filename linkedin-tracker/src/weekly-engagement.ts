@@ -1,7 +1,7 @@
 // Scheduled job (Sundays 8:00): refresh reaction/comment/repost counts for
 // recent posts and sync them into the Notion database.
 import { openBrowser, getRecentPosts } from './lib/linkedin.js';
-import { addPost, findPageByUrn, updateEngagement } from './lib/notion.js';
+import { addPost, findExistingPage, updateEngagement } from './lib/notion.js';
 import { validateConfig } from './lib/config.js';
 
 validateConfig();
@@ -23,7 +23,7 @@ let updated = 0;
 let created = 0;
 for (const post of posts) {
   try {
-    const pageId = await findPageByUrn(post.urn);
+    const pageId = await findExistingPage(post);
     if (pageId) {
       await updateEngagement(pageId, post);
       updated++;

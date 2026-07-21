@@ -2,14 +2,14 @@
 // WhatsApp on your phone (Settings → Linked Devices → Link a Device). The
 // session persists in whatsapp-session/ and is reused by scheduled runs.
 import qrcode from 'qrcode-terminal';
-import { WHATSAPP_SESSION_DIR } from './lib/config.js';
+import { WHATSAPP_SESSION_DIR, config } from './lib/config.js';
 
 const { default: pkg } = await import('whatsapp-web.js');
 const { Client, LocalAuth } = pkg;
 
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: WHATSAPP_SESSION_DIR }),
-  puppeteer: { headless: true, args: ['--no-sandbox'] },
+  puppeteer: { headless: true, executablePath: config.chromePath, args: ['--no-sandbox'] },
 });
 
 client.on('qr', (qr: string) => {

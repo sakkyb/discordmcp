@@ -4,8 +4,9 @@ Scheduled jobs on the Mac Mini that watch Sakky's LinkedIn profile for new posts
 
 ## How it works
 
-- **Post checker** (`check-new-post.js`): opens LinkedIn in a real, logged-in Chrome profile via Playwright, reads the profile's activity feed, and compares post URNs against `state.json`. New post → Notion row + WhatsApp message. No new post → exits quietly.
-- **Engagement sync** (`weekly-engagement.js`): once a week, refreshes reaction/comment/repost counts for the ~15 most recent posts and updates their Notion rows.
+- **Post checker** (`check-new-post.js`): opens LinkedIn in a real, logged-in Chrome profile via Playwright, reads the profile's activity feed, and compares post URNs against `state.json`. New post → Notion (see below) + WhatsApp message. No new post → exits quietly.
+- **Engagement sync** (`weekly-engagement.js`): once a week, refreshes reaction/comment/repost counts for the ~15 most recent posts and syncs them to Notion.
+- **Notion sync reuses the "Content schedule" database.** For each post the tracker finds the existing row by matching the LinkedIn **activity id** inside the `Post URL` column (robust across the `/feed/update/…` and `/posts/…` URL forms) and updates `Reactions`/`Comments`/`Reposts` in place. If no row matches (an unplanned post), it creates one with `Post name`/`Post URL`/`Date`. No dedicated table or `URN`/`Last Checked` columns are needed.
 - **Schedules** (local time, via `launchd`):
   - Mon–Fri: 09:00, with retry slots at 09:30 and 10:00
   - Sat: 10:30, retries 11:00 and 11:30
@@ -23,8 +24,13 @@ This section is written so it can be followed end-to-end by a human **or handed 
 Prerequisites (verify before starting):
 
 ```bash
-node --version    # need v20+
-ls "/Applications/Google Chrome.app" >/dev/null && echo "Chrome OK"   # scraper drives real Chrome
+node --version           # need v20+
+node -p process.arch     # on Apple Silicon must be 'arm64' — an x64 build runs Chrome under
+                         # Rosetta and is painfully slow. If it prints 'x64', install arm64 node
+                         # (e.g. arm64 Homebrew at /opt/homebrew: `/opt/homebrew/bin/brew install node`)
+                         # and reinstall deps under it.
+ls "/Applications/Google Chrome.app" >/dev/null && echo "Chrome OK"   # both the LinkedIn scraper (Playwright)
+                         # and WhatsApp (puppeteer, via CHROME_PATH) drive this real system Chrome
 ```
 
 All remaining commands run inside `linkedin-tracker/` within the cloned repo (pull latest `main` first: `git pull origin main`).
@@ -42,21 +48,19 @@ All remaining commands run inside `linkedin-tracker/` within the cloned repo (pu
    ```
    You will fill in the values over the next steps. `LINKEDIN_PROFILE_URL` can be set immediately (e.g. `https://www.linkedin.com/in/your-slug`, no trailing slash). `NOTION_TOKEN` can be copied from the Discord bot's `.env` in the repo root if already set up there.
 
-3. **[HUMAN]** Create the Notion database:
-   1. In Notion, create a new page containing a **table (full-page database)**, named e.g. "LinkedIn Posts".
-   2. Give it these exact property names and types (delete any default extras like Tags):
-      | Property | Type |
-      |---|---|
-      | Name | Title |
-      | URL | URL |
-      | URN | Rich text |
-      | Posted | Date |
-      | Reactions | Number |
-      | Comments | Number |
-      | Reposts | Number |
-      | Last Checked | Date |
-   3. Share it with the Notion integration: ••• menu → Connections → add the integration that owns `NOTION_TOKEN`.
-   4. Copy the database ID — it's the 32-char hex segment in the database URL, `notion.so/<workspace>/<DATABASE_ID>?v=...` — into `NOTION_LINKEDIN_DATABASE_ID` in `.env`.
+3. **[HUMAN]** Point the tracker at your Notion database. This deployment reuses
+   the existing **"Content schedule"** database rather than a dedicated one.
+   1. The tracker reads/writes these columns, which already exist there: `Post name`
+      (title), `Post URL` (url), `Date` (date), `Reactions`/`Comments`/`Reposts`
+      (number). If you point it at a different table, either match these names or
+      update the `PROP` map at the top of `src/lib/notion.ts`.
+   2. Share the database with the Notion integration that owns `NOTION_TOKEN`:
+      ••• menu → Connections → add the integration.
+   3. Set `NOTION_LINKEDIN_DATABASE_ID` in `.env` to the **database_id** — the
+      32-char hex segment in the database URL, `notion.so/<workspace>/<DATABASE_ID>?v=...`.
+      ⚠️ This is the `database_id`, **not** the `data_source_id` some other configs use
+      (e.g. `NOTION_DATA_SOURCE_ID` in the repo-root `.env`) — they differ and the
+      data-source id will 404 against this API.
 
 4. **[HUMAN]** Log into LinkedIn once — this opens a Chrome window; complete the login and any 2FA. The session persists in `chrome-profile/` and is reused by all scheduled runs:
    ```bash

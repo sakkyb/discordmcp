@@ -4,7 +4,7 @@
 // so the 30/60-minute retry slots simply no-op once the post has been caught.
 import { openBrowser, getRecentPosts } from './lib/linkedin.js';
 import { loadState, saveState } from './lib/state.js';
-import { addPost, findPageByUrn } from './lib/notion.js';
+import { addPost, findExistingPage, updateEngagement } from './lib/notion.js';
 import { sendToGroup } from './lib/whatsapp.js';
 import { config, validateConfig } from './lib/config.js';
 
@@ -47,9 +47,17 @@ for (const post of newPosts.reverse()) { // oldest first so ordering reads natur
 
   let notionUrl: string | null = null;
   try {
-    const existing = await findPageByUrn(post.urn);
-    notionUrl = existing ? null : await addPost(post);
-    if (notionUrl) console.log(`  → Added to Notion: ${notionUrl}`);
+    // Reuse the existing "Content schedule" row if this post already has one
+    // (e.g. it was planned there) — update its analytics in place rather than
+    // creating a duplicate. Otherwise add a fresh row.
+    const existingId = await findExistingPage(post);
+    if (existingId) {
+      notionUrl = await updateEngagement(existingId, post);
+      console.log(`  → Updated existing Notion row: ${notionUrl}`);
+    } else {
+      notionUrl = await addPost(post);
+      console.log(`  → Added to Notion: ${notionUrl}`);
+    }
   } catch (error) {
     console.error('  → Notion write failed:', error);
   }
