@@ -18,52 +18,71 @@ The first ever run records all existing posts as a baseline **without notifying*
 
 ## Setup on the Mac Mini
 
-All commands run inside `linkedin-tracker/`.
+This section is written so it can be followed end-to-end by a human **or handed to an agent/LLM running on the Mini**. Steps marked **[HUMAN]** need a person (logins, QR scan, Notion UI) — an agent should do everything else, pause at those, and ask.
 
-Prerequisite: **Google Chrome** must be installed (the scraper drives the real Chrome via Playwright's `channel: 'chrome'` — no separate browser download needed).
+Prerequisites (verify before starting):
+
+```bash
+node --version    # need v20+
+ls "/Applications/Google Chrome.app" >/dev/null && echo "Chrome OK"   # scraper drives real Chrome
+```
+
+All remaining commands run inside `linkedin-tracker/` within the cloned repo (pull latest `main` first: `git pull origin main`).
 
 1. Install dependencies and build:
    ```bash
    npm install
    npm run build
    ```
+   Verify: `ls build/check-new-post.js` exists.
 
-2. Configure:
+2. Create the config file:
    ```bash
-   cp .env.example .env   # then fill it in
+   cp .env.example .env
    ```
+   You will fill in the values over the next steps. `LINKEDIN_PROFILE_URL` can be set immediately (e.g. `https://www.linkedin.com/in/your-slug`, no trailing slash). `NOTION_TOKEN` can be copied from the Discord bot's `.env` in the repo root if already set up there.
 
-3. Create the Notion database (a table with these exact property names/types), share it with your integration, and put its ID in `.env`:
-   | Property | Type |
-   |---|---|
-   | Name | Title |
-   | URL | URL |
-   | URN | Rich text |
-   | Posted | Date |
-   | Reactions | Number |
-   | Comments | Number |
-   | Reposts | Number |
-   | Last Checked | Date |
+3. **[HUMAN]** Create the Notion database:
+   1. In Notion, create a new page containing a **table (full-page database)**, named e.g. "LinkedIn Posts".
+   2. Give it these exact property names and types (delete any default extras like Tags):
+      | Property | Type |
+      |---|---|
+      | Name | Title |
+      | URL | URL |
+      | URN | Rich text |
+      | Posted | Date |
+      | Reactions | Number |
+      | Comments | Number |
+      | Reposts | Number |
+      | Last Checked | Date |
+   3. Share it with the Notion integration: ••• menu → Connections → add the integration that owns `NOTION_TOKEN`.
+   4. Copy the database ID — it's the 32-char hex segment in the database URL, `notion.so/<workspace>/<DATABASE_ID>?v=...` — into `NOTION_LINKEDIN_DATABASE_ID` in `.env`.
 
-4. Log into LinkedIn once (opens a Chrome window; complete any 2FA):
+4. **[HUMAN]** Log into LinkedIn once — this opens a Chrome window; complete the login and any 2FA. The session persists in `chrome-profile/` and is reused by all scheduled runs:
    ```bash
    npm run login:linkedin
    ```
+   Success looks like: `✅ Logged in. Session saved to chrome-profile/`.
 
-5. Link WhatsApp once (prints a QR code; scan via WhatsApp → Settings → Linked Devices). It then prints your group names — copy the exact one into `WHATSAPP_GROUP_NAME` in `.env`:
+5. **[HUMAN]** Link WhatsApp once — this prints a QR code in the terminal; scan it with WhatsApp on the phone (Settings → Linked Devices → Link a Device). On success it prints the list of group names this account can post to:
    ```bash
    npm run login:whatsapp
    ```
+   Copy the exact group name (case and spacing matter) into `WHATSAPP_GROUP_NAME` in `.env`.
 
-6. Do a manual test run (this records the baseline of existing posts):
+6. Manual test run — this records existing posts as a baseline and sends **no** notifications:
    ```bash
    node build/check-new-post.js
    ```
+   Success looks like: `First run: recorded N existing posts as baseline.` If it errors, the message names the fix (expired login, missing env var, or changed LinkedIn markup).
 
 7. Install the schedules:
    ```bash
    ./scripts/setup-mac.sh
    ```
+   Verify: `launchctl list | grep com.sakky.linkedin` shows both `com.sakky.linkedin-tracker` and `com.sakky.linkedin-engagement`.
+
+8. End-to-end verification (optional but recommended): temporarily remove the last URN from `state.json`'s `knownUrns` array, run `node build/check-new-post.js` again, and confirm the most recent post appears in Notion and the WhatsApp group. (This re-sends one notification for an old post — expected.)
 
 ## Operations
 
