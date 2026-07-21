@@ -23,7 +23,13 @@ client.on('ready', async () => {
   const groups = chats.filter(c => c.isGroup).map(c => c.name);
   console.log(`Groups this account can post to:\n  - ${groups.join('\n  - ')}`);
   console.log('\nSet WHATSAPP_GROUP_NAME in .env to one of these (exact match).');
+  // Let LocalAuth flush the linked-session credentials to disk before tearing
+  // down. Destroying immediately can leave the saved session half-written, so
+  // the next run shows a QR again as if never linked.
+  console.log('Persisting session (a few seconds)...');
+  await new Promise(resolve => setTimeout(resolve, 8000));
   await client.destroy();
+  console.log('Done — session saved. You can close this.');
   process.exit(0);
 });
 

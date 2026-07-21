@@ -89,9 +89,15 @@ export async function getRecentPosts(page: Page, limit = 10): Promise<LinkedInPo
         card.querySelector('.feed-shared-inline-show-more-text')?.textContent?.trim() ??
         '';
 
+      // The reactions count lives in the reactions <li>; LinkedIn exposes it as a
+      // "social proof fallback number" (e.g. "20" for "You and 19 others"). The
+      // older `__reactions-count` class is gone, and a plain [aria-label*="reaction"]
+      // match hits the "Open reactions menu" button (no digits) — so scope to the
+      // reactions item and read the number, with the item's own text as a fallback.
       const reactions =
-        card.querySelector('.social-details-social-counts__reactions-count')?.textContent ??
-        card.querySelector('[aria-label*="reaction"]')?.getAttribute('aria-label') ??
+        card.querySelector('.social-details-social-counts__reactions .social-details-social-counts__social-proof-fallback-number')?.textContent ??
+        card.querySelector('.social-details-social-counts__social-proof-fallback-number')?.textContent ??
+        card.querySelector('.social-details-social-counts__reactions')?.textContent ??
         '';
 
       let comments = '';
