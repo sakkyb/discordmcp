@@ -4,13 +4,17 @@
 // both to keep the automation from looking machine-timed. For each of the most
 // recent posts it reads the full analytics page and writes every metric to the
 // post's Notion row (matching by activity id), creating a row if none exists.
-import { openBrowser, getRecentPosts, getPostAnalytics } from './lib/linkedin.js';
+import { openBrowser, getRecentPosts, getPostAnalytics, postCreatedAt } from './lib/linkedin.js';
 import { addPostWithAnalytics, findExistingPage, updateAnalytics } from './lib/notion.js';
 import { validateConfig } from './lib/config.js';
 
 validateConfig();
 
-const POST_LIMIT = 15;
+// SINCE_DAYS scopes the sync to posts from the last N days (dated from the
+// activity id) instead of a fixed count — used for one-off backfills. When set
+// we fetch a wider window of cards so a busy fortnight is fully covered.
+const SINCE_DAYS = process.env.SINCE_DAYS ? Number(process.env.SINCE_DAYS) : null;
+const POST_LIMIT = SINCE_DAYS ? 40 : 15;
 const MAX_START_DELAY_MS = 4 * 60 * 60 * 1000; // random 0–4h after the 01:00 launch → ~1–5am start
 const MIN_GAP_MS = 60_000;   // 60s
 const MAX_GAP_MS = 180_000;  // 180s
@@ -28,7 +32,13 @@ console.log(`[${new Date().toISOString()}] Weekly analytics sync starting...`);
 const browser = await openBrowser();
 try {
   const page = browser.pages()[0] ?? await browser.newPage();
-  const posts = await getRecentPosts(page, POST_LIMIT);
+  let posts = await getRecentPosts(page, POST_LIMIT);
+  if (SINCE_DAYS) {
+    const cutoff = Date.now() - SINCE_DAYS * 24 * 60 * 60 * 1000;
+    const before = posts.length;
+    posts = posts.filter(p => postCreatedAt(p.urn).getTime() >= cutoff);
+    console.log(`Scoped to ${posts.length}/${before} posts from the last ${SINCE_DAYS} days.`);
+  }
   console.log(`Syncing analytics for ${posts.length} posts...`);
 
   let updated = 0, created = 0, failed = 0;

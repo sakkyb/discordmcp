@@ -10,6 +10,14 @@ export interface LinkedInPost {
   reposts: number;
 }
 
+// LinkedIn activity ids embed the creation time in their high bits (the low 22
+// are a sequence counter), so a post can be dated without scraping a timestamp:
+// milliseconds since epoch = id >> 22.
+export function postCreatedAt(urn: string): Date {
+  const id = urn.split(':').pop() ?? '';
+  return new Date(Number(BigInt(id) >> 22n));
+}
+
 // Full per-post metrics from the private analytics page (owner-only).
 export interface PostAnalytics {
   impressions: number;
@@ -75,8 +83,10 @@ export async function getRecentPosts(page: Page, limit = 10): Promise<LinkedInPo
     );
   }
 
-  // Scroll a little to load a few more cards beyond the first screen.
-  for (let i = 0; i < 3; i++) {
+  // Scroll to load more cards beyond the first screen — more scrolls when a
+  // larger set is requested (e.g. a multi-week window).
+  const scrolls = Math.max(3, Math.ceil(limit / 4));
+  for (let i = 0; i < scrolls; i++) {
     await page.mouse.wheel(0, 1500);
     await page.waitForTimeout(1200);
   }
