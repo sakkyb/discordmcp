@@ -38,11 +38,11 @@ cat <<EOF
 
 Done. Schedules (local time):
   Post checks:      Mon-Fri 09:00/09:30/10:00, Sat 10:30/11:00/11:30, Sun 17:30/18:00/18:30
-  Engagement sync:  Sun 08:00
+  Analytics sync:   Sun, random start 1-6am (launchd fires 01:00, job waits a random <=4h)
 
 Useful commands:
-  node build/check-new-post.js              # run a check right now
-  node build/weekly-engagement.js           # run engagement sync right now
+  node build/check-new-post.js                           # run a check right now
+  SKIP_START_JITTER=true node build/weekly-engagement.js  # run analytics sync now (skip the wait)
   tail -f logs/tracker.out.log              # follow checker logs
   tail -f logs/engagement.out.log           # follow engagement logs
   launchctl list | grep com.sakky.linkedin  # confirm jobs are loaded
