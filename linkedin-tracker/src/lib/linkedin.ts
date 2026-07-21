@@ -10,6 +10,18 @@ export interface LinkedInPost {
   reposts: number;
 }
 
+// Full per-post metrics from the private analytics page (owner-only).
+export interface PostAnalytics {
+  impressions: number;
+  profileViews: number;
+  followersGained: number;
+  reactions: number;
+  comments: number;
+  reposts: number;
+  saves: number;
+  sends: number;
+}
+
 // Uses the system-installed Google Chrome (channel: 'chrome') with a
 // persistent profile directory, so the LinkedIn login done once via
 // `npm run login:linkedin` is reused on every scheduled run.
@@ -123,4 +135,75 @@ export async function getRecentPosts(page: Page, limit = 10): Promise<LinkedInPo
       comments: parseCount(p.comments),
       reposts: parseCount(p.reposts),
     }));
+}
+
+// Read one post's full analytics from its owner-only analytics page. LinkedIn
+// lays the metrics out as number/label pairs: Discovery & Profile metrics put
+// the number BEFORE the label, Engagement metrics put it AFTER, so we look on
+// the correct side (anchored to the section heading to avoid matching a label
+// that also appears elsewhere on the page). Fails loudly on unrecognized markup.
+export async function getPostAnalytics(page: Page, activityId: string): Promise<PostAnalytics> {
+  const url = `https://www.linkedin.com/analytics/post-summary/urn:li:activity:${activityId}/`;
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await assertLoggedIn(page);
+
+  try {
+    await page.waitForFunction(() => /Impressions/.test(document.body?.innerText ?? ''), { timeout: 30_000 });
+  } catch {
+    throw new Error(
+      `Analytics page for ${activityId} never showed "Impressions" within 30s ` +
+      `(post has no analytics, or LinkedIn changed the markup).`
+    );
+  }
+  await page.waitForTimeout(2500); // let remaining widgets settle
+
+  const raw = await page.evaluate(() => {
+    const lines = (document.body.innerText || '').split('\n').map(l => l.trim()).filter(Boolean);
+    const toNum = (s: string): number | null => {
+      const m = (s || '').replace(/,/g, '').match(/^([\d.]+)\s*([KkMm])?$/);
+      if (!m) return null;
+      let n = parseFloat(m[1]);
+      if (/k/i.test(m[2] ?? '')) n *= 1_000;
+      if (/m/i.test(m[2] ?? '')) n *= 1_000_000;
+      return Math.round(n);
+    };
+    // Find `label`; read the number on the given side. `anchor`, if present,
+    // restricts the search to lines after that section heading.
+    const read = (label: string, dir: 'before' | 'after', anchor?: string): number | null => {
+      let start = 0;
+      if (anchor) { const ai = lines.indexOf(anchor); if (ai >= 0) start = ai; }
+      for (let i = start; i < lines.length; i++) {
+        if (lines[i] === label) {
+          const n = toNum((dir === 'before' ? lines[i - 1] : lines[i + 1]) ?? '');
+          if (n != null) return n;
+        }
+      }
+      return null;
+    };
+    return {
+      impressions: read('Impressions', 'before', 'Discovery'),
+      profileViews: read('Profile viewers from this post', 'before'),
+      followersGained: read('Followers gained from this post', 'before'),
+      reactions: read('Reactions', 'after', 'Engagement'),
+      comments: read('Comments', 'after', 'Engagement'),
+      reposts: read('Reposts', 'after', 'Engagement'),
+      saves: read('Saves', 'after', 'Engagement'),
+      sends: read('Sends on LinkedIn', 'after', 'Engagement'),
+    };
+  });
+
+  if (raw.impressions == null) {
+    throw new Error(`Could not parse Impressions on the analytics page for ${activityId} (markup changed?).`);
+  }
+  // A metric LinkedIn omits (e.g. 0 saves may not render) defaults to 0.
+  return {
+    impressions: raw.impressions ?? 0,
+    profileViews: raw.profileViews ?? 0,
+    followersGained: raw.followersGained ?? 0,
+    reactions: raw.reactions ?? 0,
+    comments: raw.comments ?? 0,
+    reposts: raw.reposts ?? 0,
+    saves: raw.saves ?? 0,
+    sends: raw.sends ?? 0,
+  };
 }

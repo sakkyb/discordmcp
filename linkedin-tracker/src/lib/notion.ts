@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import type { LinkedInPost } from './linkedin.js';
+import type { LinkedInPost, PostAnalytics } from './linkedin.js';
 
 const NOTION_VERSION = '2022-06-28';
 
@@ -13,6 +13,11 @@ const PROP = {
   reactions: 'Reactions',
   comments: 'Comments',
   reposts: 'Reposts',
+  impressions: 'Impressions',
+  profileViews: 'Profile views',
+  followersGained: 'Followers gained',
+  saves: 'Saves',
+  sends: 'Sends',
 } as const;
 
 async function notionFetch(path: string, method: string, body?: unknown): Promise<any> {
@@ -87,6 +92,50 @@ export async function addPost(post: LinkedInPost): Promise<string> {
 export async function updateEngagement(pageId: string, post: LinkedInPost): Promise<string> {
   const page = await notionFetch(`/pages/${pageId}`, 'PATCH', {
     properties: engagementProperties(post),
+  });
+  return page.url;
+}
+
+// The full analytics metric set (weekly sync), keyed to the existing columns.
+function analyticsProperties(a: PostAnalytics) {
+  return {
+    [PROP.impressions]: { number: a.impressions },
+    [PROP.profileViews]: { number: a.profileViews },
+    [PROP.followersGained]: { number: a.followersGained },
+    [PROP.reactions]: { number: a.reactions },
+    [PROP.comments]: { number: a.comments },
+    [PROP.reposts]: { number: a.reposts },
+    [PROP.saves]: { number: a.saves },
+    [PROP.sends]: { number: a.sends },
+  };
+}
+
+// Update all analytics columns on an existing row in place.
+export async function updateAnalytics(pageId: string, a: PostAnalytics): Promise<string> {
+  const page = await notionFetch(`/pages/${pageId}`, 'PATCH', {
+    properties: analyticsProperties(a),
+  });
+  return page.url;
+}
+
+// Create a new row for a post that has no existing row, with full analytics.
+export async function addPostWithAnalytics(post: LinkedInPost, a: PostAnalytics): Promise<string> {
+  const title = post.text.split('\n')[0].slice(0, 100) || post.url;
+  const page = await notionFetch('/pages', 'POST', {
+    parent: { database_id: config.notionDatabaseId },
+    properties: {
+      [PROP.title]: { title: [{ text: { content: title } }] },
+      [PROP.url]: { url: post.url },
+      [PROP.date]: { date: { start: new Date().toISOString().slice(0, 10) } },
+      ...analyticsProperties(a),
+    },
+    children: post.text
+      ? [{
+          object: 'block',
+          type: 'paragraph',
+          paragraph: { rich_text: [{ text: { content: post.text.slice(0, 1900) } }] },
+        }]
+      : [],
   });
   return page.url;
 }

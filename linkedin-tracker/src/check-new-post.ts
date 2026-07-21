@@ -5,8 +5,8 @@
 import { openBrowser, getRecentPosts } from './lib/linkedin.js';
 import { loadState, saveState } from './lib/state.js';
 import { addPost, findExistingPage, updateEngagement } from './lib/notion.js';
-import { sendToGroup } from './lib/whatsapp.js';
-import { config, validateConfig } from './lib/config.js';
+import { notifyNewPost } from './lib/discord.js';
+import { validateConfig } from './lib/config.js';
 
 validateConfig();
 
@@ -34,7 +34,7 @@ if (newPosts.length === 0) {
 }
 
 // On the very first run there's no baseline — record everything currently on
-// the profile without notifying, otherwise old posts would spam Notion/WhatsApp.
+// the profile without notifying, otherwise old posts would spam Notion/Discord.
 if (firstRun) {
   state.knownUrns.push(...posts.map(p => p.urn));
   saveState(state);
@@ -62,21 +62,15 @@ for (const post of newPosts.reverse()) { // oldest first so ordering reads natur
     console.error('  → Notion write failed:', error);
   }
 
-  if (config.whatsappGroupName) {
-    try {
-      const preview = post.text.length > 200 ? post.text.slice(0, 200) + '…' : post.text;
-      await sendToGroup(
-        config.whatsappGroupName,
-        `🔔 New LinkedIn post from Sakky\n\n${preview}\n\n${post.url}${notionUrl ? `\n📝 Notion: ${notionUrl}` : ''}`
-      );
-      console.log('  → Sent to WhatsApp group.');
-    } catch (error) {
-      console.error('  → WhatsApp send failed:', error);
-    }
+  try {
+    await notifyNewPost(post.url);
+    console.log('  → Announced in Discord #general.');
+  } catch (error) {
+    console.error('  → Discord notify failed:', error);
   }
 
   // Mark as seen even if a notification failed — we'd rather miss one
-  // notification than re-spam the group on every retry slot.
+  // notification than re-spam the channel on every retry slot.
   state.knownUrns.push(post.urn);
   saveState(state);
 }

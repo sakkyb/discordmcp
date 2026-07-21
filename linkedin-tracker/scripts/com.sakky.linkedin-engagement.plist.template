@@ -14,10 +14,12 @@
     <key>WorkingDirectory</key>
     <string>__TRACKER_DIR__</string>
 
-    <!-- Weekly engagement sync: Sundays 08:00 local time -->
+    <!-- Weekly analytics sync: launchd fires at 01:00 Sunday; the job itself
+         then waits a random slice (up to ~4h) so the real start drifts across
+         the 1–6am window each week. -->
     <key>StartCalendarInterval</key>
     <array>
-        <dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>1</integer><key>Minute</key><integer>0</integer></dict>
     </array>
 
     <key>StandardOutPath</key>

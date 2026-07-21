@@ -34,8 +34,17 @@ export const config = {
   get notionDatabaseId(): string {
     return required('NOTION_LINKEDIN_DATABASE_ID');
   },
-  get whatsappGroupName(): string | null {
-    return process.env.WHATSAPP_GROUP_NAME || null;
+  // New posts are announced in Discord (the bot posts to a channel via the REST
+  // API — no gateway/intents needed). Channel and mention default to the
+  // "LinkedIn Maxxing" #general and adi.lami; override in .env if they change.
+  get discordToken(): string {
+    return required('DISCORD_TOKEN');
+  },
+  get discordChannelId(): string {
+    return process.env.DISCORD_CHANNEL_ID || '1456685055656329237';
+  },
+  get discordMentionUserId(): string | null {
+    return process.env.DISCORD_MENTION_USER_ID ?? '541101599368675329';
   },
   // Headed Chrome looks like normal browsing; keep it unless you know
   // why you want headless.
