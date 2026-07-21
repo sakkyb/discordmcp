@@ -23,3 +23,10 @@ dist/
 # OS specific
 .DS_Store
 Thumbs.db
+
+# LinkedIn tracker runtime data (sessions, state, logs)
+linkedin-tracker/chrome-profile/
+linkedin-tracker/whatsapp-session/
+linkedin-tracker/state.json
+linkedin-tracker/logs/
+.wwebjs_cache/

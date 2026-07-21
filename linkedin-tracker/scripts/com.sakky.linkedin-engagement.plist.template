@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.sakky.linkedin-engagement</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__NODE_PATH__</string>
+        <string>__TRACKER_DIR__/build/weekly-engagement.js</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__TRACKER_DIR__</string>
+
+    <!-- Weekly analytics sync: launchd fires at 01:00 Sunday; the job itself
+         then waits a random slice (up to ~4h) so the real start drifts across
+         the 1–6am window each week. -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>1</integer><key>Minute</key><integer>0</integer></dict>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>__TRACKER_DIR__/logs/engagement.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__TRACKER_DIR__/logs/engagement.err.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>

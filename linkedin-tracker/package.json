@@ -1,0 +1,25 @@
+{
+  "name": "linkedin-tracker",
+  "version": "1.0.0",
+  "description": "Scheduled LinkedIn post detection and engagement tracking, with Notion + WhatsApp notifications",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "check": "node build/check-new-post.js",
+    "engagement": "node build/weekly-engagement.js",
+    "login:linkedin": "node build/login-linkedin.js",
+    "login:whatsapp": "node build/login-whatsapp.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "playwright": "^1.54.0",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.26.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.33",
+    "@types/qrcode-terminal": "^0.12.2",
+    "typescript": "^5.9.3"
+  }
+}
