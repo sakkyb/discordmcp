@@ -19,15 +19,21 @@ client.on('qr', (qr: string) => {
 
 client.on('ready', async () => {
   console.log('✅ WhatsApp linked. Session saved to whatsapp-session/.');
-  const chats = await client.getChats();
-  const groups = chats.filter(c => c.isGroup).map(c => c.name);
-  console.log(`Groups this account can post to:\n  - ${groups.join('\n  - ')}`);
-  console.log('\nSet WHATSAPP_GROUP_NAME in .env to one of these (exact match).');
-  // Let LocalAuth flush the linked-session credentials to disk before tearing
-  // down. Destroying immediately can leave the saved session half-written, so
-  // the next run shows a QR again as if never linked.
+  // Let LocalAuth flush credentials AND let WhatsApp Web hydrate its internal
+  // store before we touch it or tear down. Both a too-early getChats() (fails
+  // with a cryptic "r: r") and a too-fast destroy() can otherwise crash the
+  // process before the saved session settles — leaving the next run at a QR.
   console.log('Persisting session (a few seconds)...');
   await new Promise(resolve => setTimeout(resolve, 8000));
+  try {
+    const chats = await client.getChats();
+    const groups = chats.filter(c => c.isGroup).map(c => c.name);
+    console.log(`Groups this account can post to:\n  - ${groups.join('\n  - ')}`);
+    console.log('\nSet WHATSAPP_GROUP_NAME in .env to one of these (exact match).');
+  } catch (e) {
+    console.warn('(Could not list groups this run — the session is still saved.)',
+      e instanceof Error ? e.message : e);
+  }
   await client.destroy();
   console.log('Done — session saved. You can close this.');
   process.exit(0);
