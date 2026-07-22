@@ -123,14 +123,14 @@ async function humanize(text: string, voiceSample?: string): Promise<string> {
 
 ---
 
-Apply the humanizer skill above to the text below. Return ONLY the rewritten text — no preamble, no notes, no audit, no explanation. Preserve the author's meaning, structure, and any LinkedIn formatting (line breaks, hooks, alternative-hook lists).${voiceSample ? `\n\nMatch this author's voice:\n${voiceSample}` : ''}
+Apply the humanizer skill above to the text below. Return ONLY the rewritten text — no preamble, no notes, no audit, no explanation. Preserve the author's meaning, structure, and LinkedIn formatting (one sentence per line with a single line break between sentences, no blank lines).${voiceSample ? `\n\nMatch this author's voice:\n${voiceSample}` : ''}
 
 TEXT TO HUMANIZE:
 ${text}`;
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-5',
-      max_tokens: 1500,
+      max_tokens: 3000,
       messages: [{ role: 'user', content: prompt }],
     });
     return response.content.find(b => b.type === 'text')?.text ?? text;
@@ -180,20 +180,31 @@ Remember to:
 - Reference real names/products where possible
 - Structure it for maximum engagement
 
-Provide the post and then list 3 alternative hook/second line combinations.`;
+Provide the post first. Then, on its own line, write exactly this separator:
+--- Alternative hooks ---
+and after it list 3 alternative hook/second line combinations for the other hook styles you did not use.`;
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-5',
-      max_tokens: 1500,
+      max_tokens: 3000,
       messages: [{ role: 'user', content: prompt }],
     });
 
     const postContent = response.content.find(b => b.type === 'text')?.text ?? '';
+
+    // Split the main post from the alternative-hooks section. Only the post
+    // goes through the humanizer — it rewrites prose and would otherwise drop
+    // the trailing hook list. The alternates are re-appended unchanged.
+    const ALT_MARKER = '--- Alternative hooks ---';
+    const markerIdx = postContent.indexOf(ALT_MARKER);
+    const mainPost = markerIdx === -1 ? postContent : postContent.slice(0, markerIdx).trim();
+    const altHooks = markerIdx === -1 ? '' : postContent.slice(markerIdx).trim();
+
     // Second pass: strip AI-writing tells so the post reads as human-written.
-    // Use Sakky's exemplar cohort post from the guidelines as the voice sample.
-    const humanized = await humanize(postContent);
-    onDraft(humanized);
-    return humanized;
+    const humanizedPost = await humanize(mainPost);
+    const result = altHooks ? `${humanizedPost}\n\n${altHooks}` : humanizedPost;
+    onDraft(result);
+    return result;
   },
 });
 
@@ -226,12 +237,15 @@ const fetchUrlTool = betaZodTool({
   },
 });
 
-const NOTION_API_VERSION = '2022-06-28';
+// 2025-09-03 is the first API version that supports databases with multiple
+// data sources (the Content schedule DB is now multi-source). Pages are created
+// under a data_source_id rather than a database_id in this version.
+const NOTION_API_VERSION = '2025-09-03';
 const NOTION_CONTENT_SCHEDULE_TYPES = [
-  'Everyday UX (Tuesday)',
-  'AI/UX Opinion (Wednesday)',
-  'Video (Thursday)',
-  'Design inspo',
+  'Everyday UX (Monday & Wednesday)',
+  'AI/UX Opinion (Tuesday)',
+  'Video/Article (Thursday)',
+  'Design inspo (stopped)',
   'Meme (Sunday)',
   'Personal life',
 ] as const;
@@ -273,7 +287,7 @@ const addToContentScheduleTool = betaZodTool({
     if (inspiredByUrl) properties['Inspired by'] = { url: inspiredByUrl };
 
     const body: Record<string, any> = {
-      parent: { database_id: process.env.NOTION_DATABASE_ID },
+      parent: { type: 'data_source_id', data_source_id: process.env.NOTION_DATA_SOURCE_ID },
       properties,
     };
     if (draftBody && draftBody.trim()) {
@@ -301,7 +315,7 @@ const addToContentScheduleTool = betaZodTool({
   },
 });
 
-const hasNotion = !!(process.env.NOTION_TOKEN && process.env.NOTION_DATABASE_ID);
+const hasNotion = !!(process.env.NOTION_TOKEN && process.env.NOTION_DATA_SOURCE_ID);
 
 const buildTools = (onDraft: (post: string) => void) => [
   ...(process.env.BRAVE_API_KEY ? [webSearchTool] : []),
@@ -322,12 +336,16 @@ DEFAULT TO DRAFTING. When a user shares an observation, example, screenshot, pro
 
 The full post returned by create_linkedin_post is automatically shown to the user in Discord. Do NOT repeat or paste the post text in your own reply — just add a short note or follow-up question (e.g. offering to tweak it or save it to Notion). Never say things like "I drafted a post above" as your only response; the draft is posted for you, so keep your reply to brief commentary.
 
-When users ask you to "add this to Notion", "save this idea", "populate the content table", or similar, call add_to_content_schedule. Classify the Type field from the content (e.g. AI commentary → "AI/UX Opinion (Wednesday)", real-world UX observation → "Everyday UX (Tuesday)"). If you also draft a full LinkedIn post (via create_linkedin_post or inline), pass the complete draft — hook, body, and any alternative hooks/notes — as draftBody so the draft lives inside the Notion page body. You can still show the draft in Discord as usual; the draftBody parameter is what gets it into Notion. Always reply with the Notion page URL the tool returns so the user can click straight in.
+When users ask you to "add this to Notion", "save this idea", "populate the content table", or similar, call add_to_content_schedule. Classify the Type field from the content (e.g. AI commentary → "AI/UX Opinion (Tuesday)", real-world UX observation → "Everyday UX (Monday & Wednesday)"). If you also draft a full LinkedIn post (via create_linkedin_post or inline), pass the complete draft — hook, body, and any alternative hooks/notes — as draftBody so the draft lives inside the Notion page body. You can still show the draft in Discord as usual; the draftBody parameter is what gets it into Notion. Always reply with the Notion page URL the tool returns so the user can click straight in.
 
 Keep responses concise and conversational. Use Discord markdown formatting where appropriate (bold with **text**, code with \`code\`). Responses must be under 1900 characters — summarise if needed.`;
 
 // Per-channel conversation history with memory management
 const conversations = new Map<string, Anthropic.MessageParam[]>();
+// Threads the bot is actively conversing in. Inside these, it reads every
+// reply without needing an @mention. (In-memory; resets on restart, but the
+// bot re-registers a thread the moment it's mentioned or replies there again.)
+const botThreadIds = new Set<string>();
 const MAX_HISTORY = 20;
 const MAX_CONVERSATIONS = 100; // Limit total conversations to prevent memory issues
 
@@ -441,7 +459,15 @@ discord.on(Events.MessageCreate, async (message: Message) => {
   lastActivity = Date.now();
   
   if (message.author.bot) return;
-  if (!message.mentions.has(discord.user!)) return;
+
+  // Respond when mentioned, OR to any message in a thread the bot is active in
+  // (a thread it created, owns, or has already replied in) — so users don't
+  // have to @mention it on every reply inside a thread conversation.
+  const inBotThread =
+    message.channel instanceof ThreadChannel &&
+    (botThreadIds.has(message.channel.id) ||
+      message.channel.ownerId === discord.user?.id);
+  if (!message.mentions.has(discord.user!) && !inBotThread) return;
 
   const content = message.content.replace(/<@!?[0-9]+>/g, '').trim();
   
@@ -455,12 +481,42 @@ discord.on(Events.MessageCreate, async (message: Message) => {
     return;
   }
 
-  const channelId = message.channel.id;
+  // Resolve where to reply — a thread off the user's message, or the current
+  // channel/thread. Do this BEFORE keying history so the whole conversation
+  // (the triggering message in a channel + every thread reply) shares one
+  // history bucket, keyed by the thread id rather than split across the parent
+  // channel and the thread.
+  const ch = message.channel;
+  let target: TextChannel | DMChannel | NewsChannel | ThreadChannel = ch as any;
+  if (ch instanceof ThreadChannel) {
+    target = ch;
+  } else if ((ch instanceof TextChannel || ch instanceof NewsChannel)) {
+    if (message.hasThread && message.thread) {
+      target = message.thread;
+    } else {
+      try {
+        target = await message.startThread({
+          name: (content || 'claudius reply').slice(0, 90),
+          autoArchiveDuration: 1440,
+        });
+      } catch (threadError) {
+        console.error('Could not start thread, replying in channel instead:', threadError);
+        target = ch;
+      }
+    }
+  }
+
+  // Register the thread so future replies in it don't need an @mention.
+  if (target instanceof ThreadChannel) {
+    botThreadIds.add(target.id);
+  }
+
+  const channelId = target instanceof ThreadChannel ? target.id : message.channel.id;
   if (!conversations.has(channelId)) {
     conversations.set(channelId, []);
   }
   const history = conversations.get(channelId)!;
-  
+
   // Build message content with images
   const messageContent: any[] = [];
   
@@ -508,29 +564,6 @@ discord.on(Events.MessageCreate, async (message: Message) => {
   // Push structured content to history
   history.push({ role: 'user', content: messageContent });
 
-  // Reply inside a thread off the user's message rather than cluttering the
-  // channel. If we're already in a thread, or can't create one (permissions,
-  // DMs), fall back to sending in the current channel.
-  const ch = message.channel;
-  let target: TextChannel | DMChannel | NewsChannel | ThreadChannel = ch as any;
-  if (ch instanceof ThreadChannel) {
-    target = ch;
-  } else if ((ch instanceof TextChannel || ch instanceof NewsChannel)) {
-    if (message.hasThread && message.thread) {
-      target = message.thread;
-    } else {
-      try {
-        target = await message.startThread({
-          name: (content || 'claudius reply').slice(0, 90),
-          autoArchiveDuration: 1440,
-        });
-      } catch (threadError) {
-        console.error('Could not start thread, replying in channel instead:', threadError);
-        target = ch;
-      }
-    }
-  }
-
   if (
     target instanceof TextChannel ||
     target instanceof DMChannel ||
@@ -548,7 +581,7 @@ discord.on(Events.MessageCreate, async (message: Message) => {
 
     const finalMessage = await anthropic.beta.messages.toolRunner({
       model: 'claude-sonnet-5',
-      max_tokens: 1500,
+      max_tokens: 2000,
       system: SYSTEM_PROMPT,
       tools,
       messages: history,
@@ -556,8 +589,15 @@ discord.on(Events.MessageCreate, async (message: Message) => {
 
     const reply = finalMessage.content.find(b => b.type === 'text')?.text ?? '';
 
-    // Store only the final text in history for clean multi-turn context
-    history.push({ role: 'assistant', content: reply });
+    // Persist any drafted posts alongside the reply. The drafts come back via
+    // the tool capture (not the model's reply text), so without this the model
+    // forgets what it drafted and can't act on "save that to Notion" later.
+    const recordedParts: string[] = [];
+    for (const draft of drafts) {
+      recordedParts.push(`[Drafted LinkedIn post]\n${draft}`);
+    }
+    if (reply) recordedParts.push(reply);
+    history.push({ role: 'assistant', content: recordedParts.join('\n\n') || '(no response)' });
     if (history.length > MAX_HISTORY) {
       history.splice(0, history.length - MAX_HISTORY);
     }

@@ -117,7 +117,7 @@ See `.env.example`. Required:
 
 Optional:
 - `BRAVE_API_KEY`: enables the web search tool
-- `NOTION_TOKEN` / `NOTION_DATABASE_ID`: enables saving LinkedIn posts to Notion
+- `NOTION_TOKEN` / `NOTION_DATA_SOURCE_ID`: enables saving LinkedIn posts to the Notion "Content schedule" (uses the data source id, required for multi-source databases on API version 2025-09-03)
 - `PORT`: port for the local health endpoint (defaults to 3000)
 
 ## Health Check
