@@ -1,4 +1,5 @@
 import { config } from './config.js';
+import { postCreatedAt } from './linkedin.js';
 import type { LinkedInPost, PostAnalytics } from './linkedin.js';
 
 const NOTION_VERSION = '2022-06-28';
@@ -44,6 +45,14 @@ function activityId(urn: string): string {
   return urn.split(':').pop() ?? urn;
 }
 
+// The post's creation date as a local YYYY-MM-DD string (dated from the
+// activity id). Used both to stamp the Date column and to find the planned row
+// for a given day.
+export function postDateStr(post: LinkedInPost): string {
+  const d = postCreatedAt(post.urn);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 // Analytics columns — written on both create and update.
 function engagementProperties(post: LinkedInPost) {
   return {
@@ -58,7 +67,7 @@ function newPostProperties(post: LinkedInPost) {
   return {
     [PROP.title]: { title: [{ text: { content: title } }] },
     [PROP.url]: { url: post.url },
-    [PROP.date]: { date: { start: new Date().toISOString().slice(0, 10) } },
+    [PROP.date]: { date: { start: postDateStr(post) } },
     ...engagementProperties(post),
   };
 }
@@ -71,6 +80,34 @@ export async function findExistingPage(post: LinkedInPost): Promise<string | nul
     page_size: 1,
   });
   return data.results?.[0]?.id ?? null;
+}
+
+// Find a planned row for a given day (YYYY-MM-DD) that has no Post URL yet —
+// the row the day's post should be stamped onto. Handles multiple posts/day:
+// each new post claims the next still-empty row for that date.
+export async function findDatedRowNeedingUrl(dateStr: string): Promise<string | null> {
+  const data = await notionFetch(`/databases/${config.notionDatabaseId}/query`, 'POST', {
+    filter: {
+      and: [
+        { property: PROP.date, date: { equals: dateStr } },
+        { property: PROP.url, url: { is_empty: true } },
+      ],
+    },
+    page_size: 1,
+  });
+  return data.results?.[0]?.id ?? null;
+}
+
+// Stamp the live post URL (and current engagement) onto an existing row —
+// this is what lets Sunday's sync match by URL later. Returns the page URL.
+export async function stampPostUrl(pageId: string, post: LinkedInPost): Promise<string> {
+  const page = await notionFetch(`/pages/${pageId}`, 'PATCH', {
+    properties: {
+      [PROP.url]: { url: post.url },
+      ...engagementProperties(post),
+    },
+  });
+  return page.url;
 }
 
 export async function addPost(post: LinkedInPost): Promise<string> {
@@ -126,7 +163,7 @@ export async function addPostWithAnalytics(post: LinkedInPost, a: PostAnalytics)
     properties: {
       [PROP.title]: { title: [{ text: { content: title } }] },
       [PROP.url]: { url: post.url },
-      [PROP.date]: { date: { start: new Date().toISOString().slice(0, 10) } },
+      [PROP.date]: { date: { start: postDateStr(post) } },
       ...analyticsProperties(a),
     },
     children: post.text

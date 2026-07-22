@@ -4,7 +4,7 @@
 // so the 30/60-minute retry slots simply no-op once the post has been caught.
 import { openBrowser, getRecentPosts } from './lib/linkedin.js';
 import { loadState, saveState } from './lib/state.js';
-import { addPost, findExistingPage, updateEngagement } from './lib/notion.js';
+import { addPost, findExistingPage, updateEngagement, findDatedRowNeedingUrl, stampPostUrl, postDateStr } from './lib/notion.js';
 import { notifyNewPost } from './lib/discord.js';
 import { validateConfig } from './lib/config.js';
 
@@ -47,16 +47,26 @@ for (const post of newPosts.reverse()) { // oldest first so ordering reads natur
 
   let notionUrl: string | null = null;
   try {
-    // Reuse the existing "Content schedule" row if this post already has one
-    // (e.g. it was planned there) — update its analytics in place rather than
-    // creating a duplicate. Otherwise add a fresh row.
-    const existingId = await findExistingPage(post);
-    if (existingId) {
-      notionUrl = await updateEngagement(existingId, post);
-      console.log(`  → Updated existing Notion row: ${notionUrl}`);
+    // 1. Already stamped (e.g. a re-run)? Just refresh engagement.
+    const already = await findExistingPage(post);
+    if (already) {
+      notionUrl = await updateEngagement(already, post);
+      console.log(`  → Row already has this post; refreshed engagement: ${notionUrl}`);
     } else {
-      notionUrl = await addPost(post);
-      console.log(`  → Added to Notion: ${notionUrl}`);
+      // 2. Stamp the live URL onto the planned row for the post's day (the row
+      //    with a matching Date and no Post URL yet). This is what lets Sunday's
+      //    sync match by URL instead of failing and duplicating. Handles multiple
+      //    posts/day: each claims the next still-empty row for that date.
+      const dateStr = postDateStr(post);
+      const dated = await findDatedRowNeedingUrl(dateStr);
+      if (dated) {
+        notionUrl = await stampPostUrl(dated, post);
+        console.log(`  → Stamped URL onto the ${dateStr} row: ${notionUrl}`);
+      } else {
+        // 3. No planned row for that day without a URL — create one.
+        notionUrl = await addPost(post);
+        console.log(`  → No empty ${dateStr} row; created a new one: ${notionUrl}`);
+      }
     }
   } catch (error) {
     console.error('  → Notion write failed:', error);
