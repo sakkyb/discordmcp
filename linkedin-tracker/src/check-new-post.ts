@@ -5,8 +5,9 @@
 import { openBrowser, getRecentPosts } from './lib/linkedin.js';
 import { loadState, saveState } from './lib/state.js';
 import { addPost, findExistingPage, updateEngagement, findDatedRowNeedingUrl, stampPostUrl, postDateStr } from './lib/notion.js';
-import { notifyNewPost } from './lib/discord.js';
-import { validateConfig } from './lib/config.js';
+import { notifyNewPost, plainUrl } from './lib/discord.js';
+import { sendWhatsAppMessage } from './lib/whatsapp-web.js';
+import { config, validateConfig } from './lib/config.js';
 
 validateConfig();
 
@@ -77,6 +78,16 @@ for (const post of newPosts.reverse()) { // oldest first so ordering reads natur
     console.log('  → Announced in Discord #general.');
   } catch (error) {
     console.error('  → Discord notify failed:', error);
+  }
+
+  // Opt-in extra channel: WhatsApp group via WhatsApp Web (Playwright).
+  if (config.whatsappWebGroup) {
+    try {
+      await sendWhatsAppMessage(config.whatsappWebGroup, `Today's post is now live: ${plainUrl(post.url)}`);
+      console.log(`  → Sent to WhatsApp group "${config.whatsappWebGroup}".`);
+    } catch (error) {
+      console.error('  → WhatsApp send failed:', error);
+    }
   }
 
   // Mark as seen even if a notification failed — we'd rather miss one

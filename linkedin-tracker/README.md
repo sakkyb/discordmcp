@@ -70,6 +70,12 @@ All remaining commands run inside `linkedin-tracker/` within the cloned repo (pu
 
 5. Configure Discord (no login/QR needed). Set `DISCORD_TOKEN` in `.env` (same bot token as the repo-root `.env`). The bot posts new-post announcements to a channel, tagging a user. The channel and user default in code to the **"LinkedIn Maxxing" #general** channel and **adi.lami**; override with `DISCORD_CHANNEL_ID` / `DISCORD_MENTION_USER_ID` in `.env` if they change. (The bot must be a member of the target guild.)
 
+6. **(Optional) Also post to a WhatsApp group.** Set `WHATSAPP_WEB_GROUP_NAME` in `.env` to the exact group name, then log in once:
+   ```bash
+   npm run login:whatsapp-web   # opens WhatsApp Web; scan the QR with your phone
+   ```
+   New posts are then also sent there, driving **WhatsApp Web via Playwright** (UI automation in its own persistent Chrome profile — deliberately *not* whatsapp-web.js, whose injected store breaks on WhatsApp Web updates). It's a best-effort extra channel: Discord remains primary, and a WhatsApp failure is logged without blocking the run. Same ToS/automation caveats as the LinkedIn scraping apply. Leave the variable empty to disable.
+
 6. Manual test run — this records existing posts as a baseline and sends **no** notifications:
    ```bash
    node build/check-new-post.js
