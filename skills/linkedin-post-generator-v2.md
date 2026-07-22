@@ -147,7 +147,7 @@ Position me as someone who:
 
 Max 150 words and assume there is video/visual support, I will upload this to give further context. Always end with a call to action, without being engagement bait.
 
-FORMATTING: Put every sentence on its own line, with a blank line between each one. This one-sentence-per-line spacing makes the post easy to read while scrolling on mobile.
+FORMATTING: Put every sentence on its own line (a single line break between sentences — no blank line between them). This one-sentence-per-line layout is easy to read while scrolling on mobile.
 
 Ensure ALL posts have:
 
@@ -181,27 +181,15 @@ Second line: These were all real quotes from week 5 of our cohort.
 Body:
 
 I smiled, sat back and just listened.
-
 Josh, after connecting an AI prototype to a real data source.
-
 Jemie, in Dubai, redesigning a ride flow for [Careem](https://www.careem.com): "I started at 9. By 11 I had a prototype."
-
 The best moment wasn't anything I said.
-
 It was watching everyone inspire each other.
-
 Josh sees Jemie's prompt.
-
 Jemie sees Josh's data connection.
-
 Manny brings stories from the Flash era.
-
 Three designers. Different companies. Different cities.
-
 But all part of the same wave.
-
 The biggest mistake you can make as a designer is forgetting you yourself once joined a wave.
-
 A new, very big one, is here.
-
 What made LLMs click for you? Was it a course, a colleague, or a small group like this one?
