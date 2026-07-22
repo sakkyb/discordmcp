@@ -7,7 +7,9 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LABEL="com.sakky.discordbot"
 PLIST_DEST="$HOME/Library/LaunchAgents/${LABEL}.plist"
-NODE_PATH="$(command -v node)"
+# Prefer the arm64 Homebrew node on Apple Silicon (running Chrome/JS under
+# Rosetta via x64 node is slow, and the launchd jobs are standardised on it).
+NODE_PATH="$([ -x /opt/homebrew/bin/node ] && echo /opt/homebrew/bin/node || command -v node)"
 
 if [ -z "$NODE_PATH" ]; then
   echo "node not found on PATH. Install Node.js (e.g. 'brew install node') first." >&2
