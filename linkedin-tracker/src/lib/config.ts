@@ -12,6 +12,9 @@ dotenv.config({ path: path.join(PACKAGE_ROOT, '.env') });
 
 export const CHROME_PROFILE_DIR = path.join(PACKAGE_ROOT, 'chrome-profile');
 export const WHATSAPP_SESSION_DIR = path.join(PACKAGE_ROOT, 'whatsapp-session');
+// Separate persistent Chrome profile for WhatsApp Web (Playwright UI automation),
+// kept apart from the LinkedIn scraping profile so the two sessions don't clash.
+export const WHATSAPP_WEB_PROFILE_DIR = path.join(PACKAGE_ROOT, 'whatsapp-web-profile');
 export const STATE_FILE = path.join(PACKAGE_ROOT, 'state.json');
 
 function required(name: string): string {
@@ -45,6 +48,12 @@ export const config = {
   },
   get discordMentionUserId(): string | null {
     return process.env.DISCORD_MENTION_USER_ID ?? '541101599368675329';
+  },
+  // Opt-in extra channel: if set, new posts are also sent to this WhatsApp group
+  // by driving WhatsApp Web via Playwright (see lib/whatsapp-web.ts). Empty =
+  // disabled (Discord remains the primary notification).
+  get whatsappWebGroup(): string | null {
+    return process.env.WHATSAPP_WEB_GROUP_NAME || null;
   },
   // Headed Chrome looks like normal browsing; keep it unless you know
   // why you want headless.
