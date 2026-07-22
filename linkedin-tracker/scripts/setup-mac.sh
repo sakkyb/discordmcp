@@ -37,7 +37,7 @@ done
 cat <<EOF
 
 Done. Schedules (local time):
-  Post checks:      Mon-Fri 09:00/09:30/10:00, Sat 10:30/11:00/11:30, Sun 17:30/18:00/18:30
+  Post checks:      Mon-Fri 09:00/09:30/10:00 + 18:00/18:30/19:00, Sat 10:30/11:00/11:30, Sun 17:30/18:00/18:30
   Analytics sync:   Sun, random start 1-6am (launchd fires 01:00, job waits a random <=4h)
 
 Useful commands:
