@@ -109,6 +109,28 @@ launchctl unload ~/Library/LaunchAgents/com.sakky.discordbot.plist
 launchctl load ~/Library/LaunchAgents/com.sakky.discordbot.plist
 ```
 
+### Recovering after a macOS software update
+
+A macOS update can stamp a TCC attribute (`com.apple.macl`) onto the bot's log
+files such that launchd can no longer open them. When that happens the service
+fails to launch with **exit code 78 (`EX_CONFIG`) and no log output**, and
+just loops via `KeepAlive` without ever coming up. Symptoms: `launchctl list |
+grep discordbot` shows a non-zero last exit, no process is running, and
+`curl http://localhost:3000/health` returns nothing.
+
+Fix — drop the wedged log files so launchd recreates clean ones, then restart:
+
+```bash
+cd ~/Documents/Github/life-master/discordmcp
+launchctl bootout "gui/$(id -u)/com.sakky.discordbot" 2>/dev/null   # stop the failing loop
+rm -f logs/bot.out.log logs/bot.err.log                            # remove the wedged files
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.sakky.discordbot.plist
+sleep 10 && curl http://localhost:3000/health                      # should report "healthy"
+```
+
+The same applies to the LinkedIn-tracker jobs if they ever fail identically —
+delete `linkedin-tracker/logs/*.log` and reload those agents.
+
 ## Environment Variables
 
 See `.env.example`. Required:
