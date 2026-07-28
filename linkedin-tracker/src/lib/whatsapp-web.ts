@@ -66,9 +66,36 @@ export async function sendWhatsAppMessage(group: string, message: string): Promi
     await page.keyboard.type(message, { delay: 10 });
     await page.keyboard.press('Enter');
 
-    // Let the message flush before tearing down.
-    await page.waitForTimeout(3000);
+    // Verify it ACTUALLY transmitted before tearing down. A WhatsApp Web session
+    // that has gone idle between sends shows a cached chat list (so we get this
+    // far) but needs time to reconnect and flush; if we close too soon the
+    // message stays "pending" and never leaves. Wait for the outgoing status to
+    // reach sent/delivered/read; throw if it's still pending so the failure is
+    // real and logged rather than a silent false-positive.
+    if (!(await waitForSent(page, 60_000))) {
+      throw new Error(
+        'WhatsApp message did not leave "pending" within 60s — the WhatsApp Web ' +
+        'session is likely disconnected. The message was NOT delivered.'
+      );
+    }
   } finally {
     await ctx.close();
   }
+}
+
+// Poll the most recent outgoing message's status until it is sent/delivered/read
+// (i.e. it left the "pending"/clock state). Returns false on timeout.
+async function waitForSent(page: Page, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const last = await page.evaluate(() => {
+      const labels = Array.from(document.querySelectorAll('[aria-label]'))
+        .map(e => (e.getAttribute('aria-label') || '').trim())
+        .filter(a => /^(Pending|Sent|Delivered|Read)$/i.test(a));
+      return labels[labels.length - 1] ?? null;
+    });
+    if (last && /^(Sent|Delivered|Read)$/i.test(last)) return true;
+    await page.waitForTimeout(2000);
+  }
+  return false;
 }

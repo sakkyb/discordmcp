@@ -4,7 +4,7 @@
 // so the 30/60-minute retry slots simply no-op once the post has been caught.
 import { openBrowser, getRecentPosts } from './lib/linkedin.js';
 import { loadState, saveState } from './lib/state.js';
-import { addPost, findExistingPage, updateEngagement, findDatedRowNeedingUrl, stampPostUrl, postDateStr } from './lib/notion.js';
+import { addPost, findExistingPage, updateEngagement, findDatedRowsNeedingUrl, stampPostUrl, postDateStr } from './lib/notion.js';
 import { notifyNewPost, plainUrl } from './lib/discord.js';
 import { sendWhatsAppMessage } from './lib/whatsapp-web.js';
 import { config, validateConfig } from './lib/config.js';
@@ -59,14 +59,20 @@ for (const post of newPosts.reverse()) { // oldest first so ordering reads natur
       //    sync match by URL instead of failing and duplicating. Handles multiple
       //    posts/day: each claims the next still-empty row for that date.
       const dateStr = postDateStr(post);
-      const dated = await findDatedRowNeedingUrl(dateStr);
-      if (dated) {
-        notionUrl = await stampPostUrl(dated, post);
+      const dated = await findDatedRowsNeedingUrl(dateStr);
+      if (dated.length === 1) {
+        // Unambiguous — exactly one planned row for that day awaiting a URL.
+        notionUrl = await stampPostUrl(dated[0], post);
         console.log(`  → Stamped URL onto the ${dateStr} row: ${notionUrl}`);
       } else {
-        // 3. No planned row for that day without a URL — create one.
+        // 0 rows, or 2+ (ambiguous). Don't guess which plan is the real post —
+        // create a separate row so no existing plan gets the wrong URL.
         notionUrl = await addPost(post);
-        console.log(`  → No empty ${dateStr} row; created a new one: ${notionUrl}`);
+        if (dated.length > 1) {
+          console.warn(`  → ⚠️ ${dated.length} rows dated ${dateStr} have no URL — ambiguous, so created a separate row rather than risk stamping the wrong plan: ${notionUrl}`);
+        } else {
+          console.log(`  → No empty ${dateStr} row; created a new one: ${notionUrl}`);
+        }
       }
     }
   } catch (error) {

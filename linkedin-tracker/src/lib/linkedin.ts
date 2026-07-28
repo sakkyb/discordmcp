@@ -73,14 +73,25 @@ export async function getRecentPosts(page: Page, limit = 10): Promise<LinkedInPo
   await page.goto(activityUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await assertLoggedIn(page);
 
-  // Let the feed hydrate; LinkedIn renders post cards client-side.
+  // Let the feed hydrate; LinkedIn renders post cards client-side. The feed
+  // sometimes loads slowly or returns an empty shell, so wait generously and
+  // reload once before giving up (this was the intermittent "No post cards"
+  // failure).
+  const cardSelector = '[data-urn^="urn:li:activity:"]';
   try {
-    await page.waitForSelector('[data-urn^="urn:li:activity:"]', { timeout: 30_000 });
+    await page.waitForSelector(cardSelector, { timeout: 45_000 });
   } catch {
-    throw new Error(
-      'No post cards found on the activity page within 30s. Either there are no posts, ' +
-      'the session is limited, or LinkedIn changed its markup (selector: [data-urn^="urn:li:activity:"]).'
-    );
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await assertLoggedIn(page);
+    try {
+      await page.waitForSelector(cardSelector, { timeout: 45_000 });
+    } catch {
+      throw new Error(
+        'No post cards found on the activity page within 45s (after one reload). Either there are ' +
+        'no posts, the session is limited/rate-limited, or LinkedIn changed its markup (selector: ' +
+        cardSelector + ').'
+      );
+    }
   }
 
   // Scroll to load more cards beyond the first screen — more scrolls when a
