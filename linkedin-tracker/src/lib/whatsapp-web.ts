@@ -66,16 +66,17 @@ export async function sendWhatsAppMessage(group: string, message: string): Promi
     await page.keyboard.type(message, { delay: 10 });
     await page.keyboard.press('Enter');
 
-    // Verify it ACTUALLY transmitted before tearing down. A WhatsApp Web session
-    // that has gone idle between sends shows a cached chat list (so we get this
-    // far) but needs time to reconnect and flush; if we close too soon the
-    // message stays "pending" and never leaves. Wait for the outgoing status to
-    // reach sent/delivered/read; throw if it's still pending so the failure is
-    // real and logged rather than a silent false-positive.
-    if (!(await waitForSent(page, 60_000))) {
+    // Verify the send didn't error. Detecting a positive "delivered" tick by
+    // scraping proved unreliable (both false positives and false negatives), but
+    // the FAILURE signal is reliable and distinctive: a degraded session marks
+    // the message with the aria-label "Something went wrong…". So we watch the
+    // last outgoing message for that error for a few seconds; its absence is our
+    // success signal (the error, when it happens, surfaces within seconds).
+    const result = await confirmSent(page, 15_000);
+    if (!result.sent) {
       throw new Error(
-        'WhatsApp message did not leave "pending" within 60s — the WhatsApp Web ' +
-        'session is likely disconnected. The message was NOT delivered.'
+        `WhatsApp reported a send error (${result.reason}). ` +
+        `The WhatsApp Web session likely needs re-linking: npm run login:whatsapp-web.`
       );
     }
   } finally {
@@ -83,19 +84,23 @@ export async function sendWhatsAppMessage(group: string, message: string): Promi
   }
 }
 
-// Poll the most recent outgoing message's status until it is sent/delivered/read
-// (i.e. it left the "pending"/clock state). Returns false on timeout.
-async function waitForSent(page: Page, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
+// Watch the last outgoing message for WhatsApp's "Something went wrong" send
+// error. Returns sent:false only if that error appears; otherwise sent:true
+// (a healthy send never shows it, and reliably detecting the delivered tick
+// by scraping is not dependable).
+async function confirmSent(page: Page, windowMs: number): Promise<{ sent: boolean; reason?: string }> {
+  const deadline = Date.now() + windowMs;
   while (Date.now() < deadline) {
-    const last = await page.evaluate(() => {
-      const labels = Array.from(document.querySelectorAll('[aria-label]'))
-        .map(e => (e.getAttribute('aria-label') || '').trim())
-        .filter(a => /^(Pending|Sent|Delivered|Read)$/i.test(a));
-      return labels[labels.length - 1] ?? null;
+    const errored = await page.evaluate(() => {
+      const rows = Array.from(document.querySelectorAll('div[role="row"]'));
+      // Last outgoing row (WhatsApp tags outgoing rows with a "You:" aria-label).
+      const mine = rows.reverse().find(r =>
+        Array.from(r.querySelectorAll('[aria-label]')).some(e => /^you:?$/i.test((e.getAttribute('aria-label') || '').trim())));
+      if (!mine) return false;
+      return Array.from(mine.querySelectorAll('[aria-label]')).some(e => /something went wrong/i.test(e.getAttribute('aria-label') || ''));
     });
-    if (last && /^(Sent|Delivered|Read)$/i.test(last)) return true;
-    await page.waitForTimeout(2000);
+    if (errored) return { sent: false, reason: 'WhatsApp showed "Something went wrong" on the message' };
+    await page.waitForTimeout(1500);
   }
-  return false;
+  return { sent: true };
 }

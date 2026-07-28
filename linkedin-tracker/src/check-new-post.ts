@@ -5,7 +5,7 @@
 import { openBrowser, getRecentPosts } from './lib/linkedin.js';
 import { loadState, saveState } from './lib/state.js';
 import { addPost, findExistingPage, updateEngagement, findDatedRowsNeedingUrl, stampPostUrl, postDateStr } from './lib/notion.js';
-import { notifyNewPost, plainUrl } from './lib/discord.js';
+import { notifyNewPost, sendDiscordAlert, plainUrl } from './lib/discord.js';
 import { sendWhatsAppMessage } from './lib/whatsapp-web.js';
 import { config, validateConfig } from './lib/config.js';
 
@@ -92,7 +92,14 @@ for (const post of newPosts.reverse()) { // oldest first so ordering reads natur
       await sendWhatsAppMessage(config.whatsappWebGroup, `Today's post is now live: ${plainUrl(post.url)}`);
       console.log(`  → Sent to WhatsApp group "${config.whatsappWebGroup}".`);
     } catch (error) {
-      console.error('  → WhatsApp send failed:', error);
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error('  → WhatsApp send failed:', msg);
+      // Surface the failure in Discord so it's never silent (Discord is reliable).
+      try {
+        await sendDiscordAlert(`WhatsApp notification did NOT send for today's post (${plainUrl(post.url)}).\n${msg}`);
+      } catch (alertErr) {
+        console.error('  → Discord alert also failed:', alertErr instanceof Error ? alertErr.message : alertErr);
+      }
     }
   }
 

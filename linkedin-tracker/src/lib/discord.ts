@@ -9,13 +9,8 @@ export function plainUrl(url: string): string {
   return q === -1 ? url : url.slice(0, q);
 }
 
-// Announce a newly-detected post in the Discord channel, tagging the configured
-// user. Sent as the bot via the REST API — the same token the Discord bot uses,
-// no gateway connection required.
-export async function notifyNewPost(postUrl: string): Promise<void> {
-  const mention = config.discordMentionUserId ? `<@${config.discordMentionUserId}> ` : '';
-  const content = `${mention}Today's post is now live, and here is the link to it:\n${plainUrl(postUrl)}`;
-  const res = await fetch(`${API}/channels/${config.discordChannelId}/messages`, {
+async function postMessage(channelId: string, content: string): Promise<void> {
+  const res = await fetch(`${API}/channels/${channelId}/messages`, {
     method: 'POST',
     headers: {
       Authorization: `Bot ${config.discordToken}`,
@@ -27,4 +22,17 @@ export async function notifyNewPost(postUrl: string): Promise<void> {
     const detail = await res.text();
     throw new Error(`Discord message failed (${res.status}): ${detail}`);
   }
+}
+
+// Announce a newly-detected post in the Discord channel, tagging the configured
+// user. Sent as the bot via the REST API — the same token the Discord bot uses,
+// no gateway connection required.
+export async function notifyNewPost(postUrl: string): Promise<void> {
+  const mention = config.discordMentionUserId ? `<@${config.discordMentionUserId}> ` : '';
+  await postMessage(config.discordChannelId, `${mention}Today's post is now live, and here is the link to it:\n${plainUrl(postUrl)}`);
+}
+
+// Operational alert (e.g. WhatsApp send failed) → the alert channel (#random-chat).
+export async function sendDiscordAlert(text: string): Promise<void> {
+  await postMessage(config.discordAlertChannelId, `⚠️ ${text}`);
 }
