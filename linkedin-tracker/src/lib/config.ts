@@ -46,6 +46,11 @@ export const config = {
   get discordChannelId(): string {
     return process.env.DISCORD_CHANNEL_ID || '1456685055656329237';
   },
+  // Channel for operational alerts (e.g. WhatsApp send failures) — defaults to
+  // "LinkedIn Maxxing" #random-chat.
+  get discordAlertChannelId(): string {
+    return process.env.DISCORD_ALERT_CHANNEL_ID || '1456686005154480239';
+  },
   get discordMentionUserId(): string | null {
     return process.env.DISCORD_MENTION_USER_ID ?? '541101599368675329';
   },
