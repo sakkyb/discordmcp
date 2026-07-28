@@ -82,10 +82,12 @@ export async function findExistingPage(post: LinkedInPost): Promise<string | nul
   return data.results?.[0]?.id ?? null;
 }
 
-// Find a planned row for a given day (YYYY-MM-DD) that has no Post URL yet —
-// the row the day's post should be stamped onto. Handles multiple posts/day:
-// each new post claims the next still-empty row for that date.
-export async function findDatedRowNeedingUrl(dateStr: string): Promise<string | null> {
+// All planned rows for a given day (YYYY-MM-DD) that have no Post URL yet.
+// The caller stamps only when there's exactly one — with several same-date
+// rows there's no reliable way to know which is the actual post (planned names
+// don't match content, and created-time doesn't distinguish them), so guessing
+// risks stamping the wrong plan.
+export async function findDatedRowsNeedingUrl(dateStr: string): Promise<string[]> {
   const data = await notionFetch(`/databases/${config.notionDatabaseId}/query`, 'POST', {
     filter: {
       and: [
@@ -93,9 +95,9 @@ export async function findDatedRowNeedingUrl(dateStr: string): Promise<string | 
         { property: PROP.url, url: { is_empty: true } },
       ],
     },
-    page_size: 1,
+    page_size: 20,
   });
-  return data.results?.[0]?.id ?? null;
+  return (data.results ?? []).map((r: any) => r.id);
 }
 
 // Stamp the live post URL (and current engagement) onto an existing row —
