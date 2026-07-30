@@ -349,6 +349,58 @@ const botThreadIds = new Set<string>();
 const MAX_HISTORY = 20;
 const MAX_CONVERSATIONS = 100; // Limit total conversations to prevent memory issues
 
+// Reconstructs a thread's conversation history straight from Discord after a
+// restart (or on first contact with a thread from before the bot joined it),
+// since Discord already keeps every message forever — no separate persistence
+// needed. Only text is recovered; past image attachments aren't re-fetched.
+async function buildHistoryFromThread(thread: ThreadChannel, excludeMessageId?: string): Promise<Anthropic.MessageParam[]> {
+  try {
+    const fetched = await thread.messages.fetch({ limit: MAX_HISTORY });
+    const ordered = Array.from(fetched.values())
+      .filter(m => m.id !== excludeMessageId)
+      .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+    const history: Anthropic.MessageParam[] = [];
+    for (const m of ordered) {
+      let text = m.content.replace(/<@!?[0-9]+>/g, '').trim();
+      let authorId = m.author.id;
+
+      // A thread's opening message is a synthetic "thread starter" pointer
+      // (type 21) with empty content — the real text/image lives on the
+      // message it references (the one the thread was spun off of).
+      if (m.type === 21 && !text) {
+        try {
+          const ref = await m.fetchReference();
+          text = ref.content.replace(/<@!?[0-9]+>/g, '').trim();
+          if (ref.attachments.size > 0) {
+            text += (text ? ' ' : '') + '[shared an image]';
+          }
+          authorId = ref.author.id;
+        } catch {
+          continue;
+        }
+      }
+      if (!text) continue;
+
+      const role = authorId === discord.user?.id ? 'assistant' : 'user';
+      // Merge consecutive same-role messages — Claude's API requires alternation.
+      const last = history[history.length - 1];
+      if (last && last.role === role && typeof last.content === 'string') {
+        last.content += `\n${text}`;
+      } else {
+        history.push({ role, content: text });
+      }
+    }
+    // Claude requires the history to start with a user turn — drop any bot
+    // chatter that somehow precedes the first real user message (rare).
+    while (history.length && history[0].role !== 'user') history.shift();
+    return history;
+  } catch (error) {
+    console.error(`Could not rebuild history for thread ${thread.id}:`, error);
+    return [];
+  }
+}
+
 // Clean up old conversations periodically
 setInterval(() => {
   if (conversations.size > MAX_CONVERSATIONS) {
@@ -513,7 +565,10 @@ discord.on(Events.MessageCreate, async (message: Message) => {
 
   const channelId = target instanceof ThreadChannel ? target.id : message.channel.id;
   if (!conversations.has(channelId)) {
-    conversations.set(channelId, []);
+    const rebuilt = target instanceof ThreadChannel
+      ? await buildHistoryFromThread(target, message.id)
+      : [];
+    conversations.set(channelId, rebuilt);
   }
   const history = conversations.get(channelId)!;
 
