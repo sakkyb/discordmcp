@@ -267,8 +267,65 @@ function draftToNotionBlocks(draftBody: string) {
   return blocks.slice(0, 100);
 }
 
+// An image pulled off Discord, ready to hand to Notion.
+type PendingImage = { buffer: Buffer; filename: string; contentType: string };
+
+// Notion's Direct Upload is two calls: reserve an upload slot, then send the
+// bytes. Returns the file_upload id to reference from an image block. We upload
+// the bytes rather than pointing Notion at the Discord CDN url, because those
+// urls are signed and expire — an external-url image would rot within a day.
+async function uploadImageToNotion(img: PendingImage): Promise<string | null> {
+  try {
+    const createRes = await fetch('https://api.notion.com/v1/file_uploads', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.NOTION_TOKEN}`,
+        'Notion-Version': NOTION_API_VERSION,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        mode: 'single_part',
+        filename: img.filename,
+        content_type: img.contentType,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!createRes.ok) {
+      console.error(`Notion file_upload create failed (${createRes.status}):`, (await createRes.text()).slice(0, 300));
+      return null;
+    }
+    const { id } = await createRes.json() as any;
+
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array(img.buffer)], { type: img.contentType }), img.filename);
+
+    const sendRes = await fetch(`https://api.notion.com/v1/file_uploads/${id}/send`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.NOTION_TOKEN}`,
+        'Notion-Version': NOTION_API_VERSION,
+      },
+      body: form,
+      signal: AbortSignal.timeout(60000),
+    });
+    if (!sendRes.ok) {
+      console.error(`Notion file_upload send failed (${sendRes.status}):`, (await sendRes.text()).slice(0, 300));
+      return null;
+    }
+    return id;
+  } catch (error) {
+    console.error('Notion image upload error:', error);
+    return null;
+  }
+}
+
+// Notion rejects single_part uploads over 20MB, and free workspaces cap at 5MB.
+// Discord's reported attachment.size can understate the bytes the CDN actually
+// serves (seen 4x), so gate on the real buffer length instead.
+const NOTION_MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+
 // Tool: add a new idea row to the Notion "Content schedule" database
-const addToContentScheduleTool = betaZodTool({
+const makeAddToContentScheduleTool = (getImage: () => Promise<PendingImage | null>) => betaZodTool({
   name: 'add_to_content_schedule',
   description: 'Add a new content idea row to the Notion "Content schedule" database. Use when the user wants to save a post idea, dump an idea into Notion, or asks to populate the content table. If you have drafted post content, pass it as draftBody so it lives inside the Notion page body.',
   inputSchema: z.object({
@@ -290,9 +347,32 @@ const addToContentScheduleTool = betaZodTool({
       parent: { type: 'data_source_id', data_source_id: process.env.NOTION_DATA_SOURCE_ID },
       properties,
     };
-    if (draftBody && draftBody.trim()) {
-      body.children = draftToNotionBlocks(draftBody);
+    const children: any[] = draftBody && draftBody.trim() ? draftToNotionBlocks(draftBody) : [];
+
+    // Attach whatever image came with the Discord message. This is taken from
+    // the message itself rather than a tool parameter, so the model never has
+    // to pass a url around and can't get it wrong.
+    const img = await getImage();
+    let imageNote = '';
+    if (img) {
+      if (img.buffer.length > NOTION_MAX_UPLOAD_BYTES) {
+        imageNote = ` (image skipped — ${(img.buffer.length / 1048576).toFixed(1)}MB exceeds Notion's upload limit)`;
+      } else {
+        const uploadId = await uploadImageToNotion(img);
+        if (uploadId) {
+          children.push({
+            object: 'block',
+            type: 'image',
+            image: { type: 'file_upload', file_upload: { id: uploadId } },
+          });
+          imageNote = ' with the image attached';
+        } else {
+          imageNote = ' (image upload failed — text saved)';
+        }
+      }
     }
+
+    if (children.length) body.children = children;
 
     const res = await fetch('https://api.notion.com/v1/pages', {
       method: 'POST',
@@ -311,17 +391,20 @@ const addToContentScheduleTool = betaZodTool({
     }
     const data = await res.json() as any;
     const draftedNote = draftBody && draftBody.trim() ? ' with draft body' : '';
-    return `Added "${postName}" to Content schedule${draftedNote}.${data.url ? ` ${data.url}` : ''}`;
+    return `Added "${postName}" to Content schedule${draftedNote}${imageNote}.${data.url ? ` ${data.url}` : ''}`;
   },
 });
 
 const hasNotion = !!(process.env.NOTION_TOKEN && process.env.NOTION_DATA_SOURCE_ID);
 
-const buildTools = (onDraft: (post: string) => void) => [
+const buildTools = (
+  onDraft: (post: string) => void,
+  getImage: () => Promise<PendingImage | null> = async () => null,
+) => [
   ...(process.env.BRAVE_API_KEY ? [webSearchTool] : []),
   fetchUrlTool,
   makeCreateLinkedInPostTool(onDraft),
-  ...(hasNotion ? [addToContentScheduleTool] : []),
+  ...(hasNotion ? [makeAddToContentScheduleTool(getImage)] : []),
 ];
 
 const SYSTEM_PROMPT = `You are a helpful assistant in a Discord server. You have tools to browse the internet, fetch URLs, and create LinkedIn posts.
@@ -337,6 +420,8 @@ DEFAULT TO DRAFTING. When a user shares an observation, example, screenshot, pro
 The full post returned by create_linkedin_post is automatically shown to the user in Discord. Do NOT repeat or paste the post text in your own reply — just add a short note or follow-up question (e.g. offering to tweak it or save it to Notion). Never say things like "I drafted a post above" as your only response; the draft is posted for you, so keep your reply to brief commentary.
 
 When users ask you to "add this to Notion", "save this idea", "populate the content table", or similar, call add_to_content_schedule. Classify the Type field from the content (e.g. AI commentary → "AI/UX Opinion (Tuesday)", real-world UX observation → "Everyday UX (Monday & Wednesday)"). If you also draft a full LinkedIn post (via create_linkedin_post or inline), pass the complete draft — hook, body, and any alternative hooks/notes — as draftBody so the draft lives inside the Notion page body. You can still show the draft in Discord as usual; the draftBody parameter is what gets it into Notion. Always reply with the Notion page URL the tool returns so the user can click straight in.
+
+If an image was shared in the conversation, it is attached to the Notion page automatically — you do not need to pass it or ask for it. Never tell the user you cannot add their image to Notion.
 
 Keep responses concise and conversational. Use Discord markdown formatting where appropriate (bold with **text**, code with \`code\`). Responses must be under 1900 characters — summarise if needed.`;
 
@@ -399,6 +484,61 @@ async function buildHistoryFromThread(thread: ThreadChannel, excludeMessageId?: 
     console.error(`Could not rebuild history for thread ${thread.id}:`, error);
     return [];
   }
+}
+
+// Finds the most recent image in a thread, walking backwards. Used when the
+// user says "save that to Notion" a few messages after posting the image.
+// The image usually lives on the message the thread was spun off of, which the
+// api exposes as a type-21 starter pointing at the real message.
+async function findRecentThreadImage(thread: ThreadChannel): Promise<PendingImage | null> {
+  try {
+    const fetched = await thread.messages.fetch({ limit: 20 });
+    const newestFirst = Array.from(fetched.values()).sort((a, b) => b.createdTimestamp - a.createdTimestamp);
+
+    for (const m of newestFirst) {
+      let attachments = Array.from(m.attachments.values());
+      if (!attachments.length && m.type === 21) {
+        try {
+          const ref = await m.fetchReference();
+          attachments = Array.from(ref.attachments.values());
+        } catch {
+          continue;
+        }
+      }
+      const image = attachments.find(a => a.contentType?.startsWith('image/'));
+      if (!image) continue;
+
+      const downloaded = await downloadAttachment(image);
+      if (downloaded) return downloaded;
+    }
+
+    // The scan above only covers the most recent messages, so in a long thread
+    // the originating message can fall outside it. Check it explicitly.
+    try {
+      const starter = await thread.fetchStarterMessage();
+      const image = starter?.attachments.find(a => a.contentType?.startsWith('image/'));
+      if (image) return await downloadAttachment(image);
+    } catch {
+      // starter deleted or unreachable — nothing more to try
+    }
+    return null;
+  } catch (error) {
+    console.error(`Could not find image in thread ${thread.id}:`, error);
+    return null;
+  }
+}
+
+// Pulls the bytes for a Discord attachment. The cdn url is signed and expires,
+// but it comes from a fresh api fetch each time, so it's valid at this point.
+async function downloadAttachment(image: { url: string; name: string | null; contentType: string | null }): Promise<PendingImage | null> {
+  const res = await fetch(image.url);
+  if (!res.ok) return null;
+  const buffer = Buffer.from(await res.arrayBuffer());
+  return {
+    buffer,
+    filename: image.name || 'image.jpg',
+    contentType: detectImageMediaType(buffer) || image.contentType || 'image/jpeg',
+  };
 }
 
 // Clean up old conversations periodically
@@ -574,12 +714,17 @@ discord.on(Events.MessageCreate, async (message: Message) => {
 
   // Build message content with images
   const messageContent: any[] = [];
-  
+
+  // The image to hand to Notion if the model decides to save this idea. Set
+  // from the attachment on this message; falls back to the most recent image
+  // in the thread further down.
+  let pendingImage: PendingImage | null = null;
+
   // Add text if present
   if (content) {
     messageContent.push({ type: 'text', text: content });
   }
-  
+
   // Add images if present
   if (imageAttachments.size > 0) {
     for (const attachment of imageAttachments.values()) {
@@ -589,6 +734,14 @@ discord.on(Events.MessageCreate, async (message: Message) => {
         const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
         const base64Image = imageBuffer.toString('base64');
         const mediaType = detectImageMediaType(imageBuffer) || attachment.contentType || 'image/jpeg';
+
+        if (!pendingImage) {
+          pendingImage = {
+            buffer: imageBuffer,
+            filename: attachment.name || 'image.jpg',
+            contentType: mediaType,
+          };
+        }
 
         messageContent.push({
           type: 'image',
@@ -632,7 +785,18 @@ discord.on(Events.MessageCreate, async (message: Message) => {
     // Capture any LinkedIn drafts the tool produces; the tool's return value
     // is only seen by the model, so we post the draft to Discord ourselves.
     const drafts: string[] = [];
-    const tools = buildTools((post) => drafts.push(post));
+    // Resolved lazily and cached, so we only pay for the thread scan/download
+    // if the model actually saves to Notion.
+    let resolvedImage: PendingImage | null | undefined;
+    const tools = buildTools(
+      (post) => drafts.push(post),
+      async () => {
+        if (resolvedImage !== undefined) return resolvedImage;
+        resolvedImage = pendingImage
+          ?? (target instanceof ThreadChannel ? await findRecentThreadImage(target) : null);
+        return resolvedImage;
+      },
+    );
 
     const finalMessage = await anthropic.beta.messages.toolRunner({
       model: 'claude-sonnet-5',
