@@ -53,13 +53,34 @@ function parseCount(text: string | null | undefined): number {
   return Math.round(n);
 }
 
+const LOGGED_OUT_HINT = `Run 'npm run login:linkedin' on the Mac Mini to log in again.`;
+
 export async function assertLoggedIn(page: Page): Promise<void> {
   // If the session has expired LinkedIn bounces to a login/authwall page.
   const url = page.url();
   if (/\/(login|authwall|checkpoint|uas\/login)/.test(url)) {
+    throw new Error(`LinkedIn session is not logged in (landed on ${url}). ${LOGGED_OUT_HINT}`);
+  }
+
+  // LinkedIn also serves a logged-out "guest wall" at the *requested* URL — HTTP
+  // 200, no redirect — showing a cookie banner and a Join/Sign in form. The URL
+  // check above cannot see that, so an expired session used to sail past here
+  // and fail much later as a bogus "no post cards / markup changed" error.
+  // Detect it from the page: the join form is present and the authenticated
+  // global nav is not.
+  const guestWall = await page
+    .evaluate(() => {
+      const text = document.body?.innerText ?? '';
+      const joinForm = /Agree & Join|Already on LinkedIn\?|Join LinkedIn/i.test(text);
+      const authedNav = /My Network|Notifications|Messaging/i.test(text) || !!document.querySelector('.global-nav__me');
+      return joinForm && !authedNav;
+    })
+    .catch(() => false);
+
+  if (guestWall) {
     throw new Error(
-      `LinkedIn session is not logged in (landed on ${url}). ` +
-      `Run 'npm run login:linkedin' on the Mac Mini to log in again.`
+      `LinkedIn served its logged-out guest wall at ${url} (HTTP 200, no redirect), ` +
+      `so the saved session has expired. ${LOGGED_OUT_HINT}`
     );
   }
 }
@@ -77,17 +98,20 @@ export async function getRecentPosts(page: Page, limit = 10): Promise<LinkedInPo
   // sometimes loads slowly or returns an empty shell, so wait generously and
   // reload once before giving up (this was the intermittent "No post cards"
   // failure).
+  // The feed is markedly slower to hydrate under automation than in an ordinary
+  // Chrome window — 120s, not 45s, is what it actually needs.
+  const CARD_TIMEOUT_MS = 120_000;
   const cardSelector = '[data-urn^="urn:li:activity:"]';
   try {
-    await page.waitForSelector(cardSelector, { timeout: 45_000 });
+    await page.waitForSelector(cardSelector, { timeout: CARD_TIMEOUT_MS });
   } catch {
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 60_000 });
     await assertLoggedIn(page);
     try {
-      await page.waitForSelector(cardSelector, { timeout: 45_000 });
+      await page.waitForSelector(cardSelector, { timeout: CARD_TIMEOUT_MS });
     } catch {
       throw new Error(
-        'No post cards found on the activity page within 45s (after one reload). Either there are ' +
+        `No post cards found on the activity page within ${CARD_TIMEOUT_MS / 1000}s (after one reload). Either there are ` +
         'no posts, the session is limited/rate-limited, or LinkedIn changed its markup (selector: ' +
         cardSelector + ').'
       );
