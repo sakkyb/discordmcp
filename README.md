@@ -121,7 +121,7 @@ grep discordbot` shows a non-zero last exit, no process is running, and
 Fix — drop the wedged log files so launchd recreates clean ones, then restart:
 
 ```bash
-cd ~/Documents/Github/life-master/discordmcp
+cd ~/Projects/life-master/discordmcp
 launchctl bootout "gui/$(id -u)/com.sakky.discordbot" 2>/dev/null   # stop the failing loop
 rm -f logs/bot.out.log logs/bot.err.log                            # remove the wedged files
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.sakky.discordbot.plist
