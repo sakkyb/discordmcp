@@ -1,6 +1,9 @@
 import { config } from './config.js';
 import { postCreatedAt } from './linkedin.js';
 import type { LinkedInPost, PostAnalytics } from './linkedin.js';
+// Type-only, so this introduces no runtime cycle: classify.ts imports config,
+// never notion.
+import type { Candidate } from './classify.js';
 
 const NOTION_VERSION = '2022-06-28';
 
@@ -143,6 +146,70 @@ export async function findDatedRowsNeedingUrl(dateStr: string): Promise<string[]
     page_size: 20,
   });
   return (data.results ?? []).map((r: any) => r.id);
+}
+
+function toCandidate(row: any): Candidate {
+  return {
+    id: row.id,
+    name: row.properties[PROP.title]?.title?.map((t: any) => t.plain_text).join('') || '(untitled)',
+    date: row.properties[PROP.date]?.date?.start ?? null,
+  };
+}
+
+// Every planned row a live post could plausibly be. Deliberately wider than the
+// post's own day: a plan written for Thursday often goes out on Saturday, and
+// rows with no date at all are exactly the undisciplined case this exists to
+// absorb. Rows marked Scrapped are excluded, which is how an abandoned plan is
+// retired. Two flat queries rather than one nested filter — Notion only nests
+// compound filters two levels deep.
+export async function findUnstampedCandidates(postDate: Date, windowDays = 14): Promise<Candidate[]> {
+  const { start, end } = dateWindow(postDate, windowDays);
+  const base = [
+    { property: PROP.url, url: { is_empty: true } },
+    { property: PROP.scrapped, checkbox: { equals: false } },
+  ];
+
+  const [dated, undated] = await Promise.all([
+    notionFetch(`/databases/${config.notionDatabaseId}/query`, 'POST', {
+      filter: {
+        and: [
+          ...base,
+          { property: PROP.date, date: { on_or_after: start } },
+          { property: PROP.date, date: { on_or_before: end } },
+        ],
+      },
+      sorts: [{ property: PROP.date, direction: 'ascending' }],
+      page_size: 25,
+    }),
+    notionFetch(`/databases/${config.notionDatabaseId}/query`, 'POST', {
+      filter: { and: [...base, { property: PROP.date, date: { is_empty: true } }] },
+      page_size: 10,
+    }),
+  ]);
+
+  const seen = new Set<string>();
+  return [...(dated.results ?? []), ...(undated.results ?? [])]
+    .filter((row: any) => !seen.has(row.id) && seen.add(row.id))
+    .map(toCandidate);
+}
+
+// Replace a planned row's body with the post that actually went live. Planned
+// rows hold drafts and alternative versions; once the real one is out those are
+// noise, and the row is more useful as a record of what was published.
+export async function replacePageBody(pageId: string, text: string): Promise<void> {
+  const existing = await notionFetch(`/blocks/${pageId}/children?page_size=100`, 'GET');
+  for (const block of existing.results ?? []) {
+    await notionFetch(`/blocks/${block.id}`, 'DELETE');
+  }
+  const chunks = chunkText(text);
+  if (chunks.length === 0) return;
+  await notionFetch(`/blocks/${pageId}/children`, 'PATCH', {
+    children: chunks.map(content => ({
+      object: 'block',
+      type: 'paragraph',
+      paragraph: { rich_text: [{ text: { content } }] },
+    })),
+  });
 }
 
 // Stamp the live post URL (and current engagement) onto an existing row —
