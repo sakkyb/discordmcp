@@ -7,7 +7,7 @@ const NOTION_VERSION = '2022-06-28';
 // This tracker reuses the existing "Content schedule" database rather than a
 // dedicated one, so it reads/writes the columns that already live there.
 // If you point it at a different table, update these names to match.
-const PROP = {
+export const PROP = {
   title: 'Post name', // title
   url: 'Post URL', // url — matched (by activity id) to find the row for a post
   date: 'Date', // date
@@ -23,7 +23,7 @@ const PROP = {
   scrapped: 'Scrapped', // checkbox — an abandoned plan; never a match candidate
 } as const;
 
-async function notionFetch(path: string, method: string, body?: unknown): Promise<any> {
+export async function notionFetch(path: string, method: string, body?: unknown): Promise<any> {
   const res = await fetch(`https://api.notion.com/v1${path}`, {
     method,
     headers: {

@@ -9,6 +9,7 @@
     "test": "npm run build && node --test \"build/**/*.test.js\"",
     "check": "node build/check-new-post.js",
     "engagement": "node build/weekly-engagement.js",
+    "backfill:analytics-url": "node build/backfill-analytics-url.js",
     "login:linkedin": "node build/login-linkedin.js",
     "login:whatsapp": "node build/login-whatsapp.js",
     "login:whatsapp-web": "node build/login-whatsapp-web.js"
