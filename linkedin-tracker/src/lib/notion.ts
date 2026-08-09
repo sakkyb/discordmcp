@@ -19,6 +19,8 @@ const PROP = {
   followersGained: 'Followers gained',
   saves: 'Saves',
   sends: 'Sends',
+  analyticsUrl: 'Analytics URL', // url — derived from the activity id, no extra call
+  scrapped: 'Scrapped', // checkbox — an abandoned plan; never a match candidate
 } as const;
 
 async function notionFetch(path: string, method: string, body?: unknown): Promise<any> {
@@ -43,6 +45,48 @@ async function notionFetch(path: string, method: string, body?: unknown): Promis
 // so we match Notion rows on it rather than on an exact URL string.
 function activityId(urn: string): string {
   return urn.split(':').pop() ?? urn;
+}
+
+// The owner-only analytics page for a post. Fully derivable from the activity
+// id, so filling the column costs no extra request.
+export function analyticsUrlFor(urn: string): string {
+  return `https://www.linkedin.com/analytics/post-summary/urn:li:activity:${activityId(urn)}/`;
+}
+
+// Pull the activity id back out of a stored Post URL. Handles both forms
+// LinkedIn uses: `/feed/update/urn:li:activity:7215…/` and the share-link
+// `/posts/<slug>-activity-7215…-<hash>`.
+export function activityIdFromUrl(url: string): string | null {
+  return url.match(/activity[:-](\d{15,25})/)?.[1] ?? null;
+}
+
+// Local YYYY-MM-DD bounds N days either side of a date, for the Notion query
+// that gathers candidate rows.
+export function dateWindow(center: Date, days: number): { start: string; end: string } {
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const start = new Date(center);
+  start.setDate(start.getDate() - days);
+  const end = new Date(center);
+  end.setDate(end.getDate() + days);
+  return { start: fmt(start), end: fmt(end) };
+}
+
+// Notion caps rich_text content at 2000 characters per block, so long posts are
+// split across several paragraphs — preferring a line break, then a space, and
+// only cutting mid-word as a last resort.
+export function chunkText(text: string, max = 1900): string[] {
+  const out: string[] = [];
+  let rest = text.trim();
+  while (rest.length > max) {
+    let cut = rest.lastIndexOf('\n', max);
+    if (cut < max * 0.5) cut = rest.lastIndexOf(' ', max);
+    if (cut < max * 0.5) cut = max;
+    out.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) out.push(rest);
+  return out;
 }
 
 // The post's creation date as a local YYYY-MM-DD string (dated from the

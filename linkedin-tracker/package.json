@@ -6,6 +6,7 @@
   "private": true,
   "scripts": {
     "build": "tsc",
+    "test": "npm run build && node --test \"build/**/*.test.js\"",
     "check": "node build/check-new-post.js",
     "engagement": "node build/weekly-engagement.js",
     "login:linkedin": "node build/login-linkedin.js",
