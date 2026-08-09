@@ -8,10 +8,18 @@ const CANDIDATES: Candidate[] = [
   { id: 'p3', name: 'New book announcement', date: null },
 ];
 
-test('buildPrompt numbers candidates from 1 and marks undated ones', () => {
+test('buildPrompt numbers candidates from 1', () => {
   const prompt = buildPrompt('a post about a ramp', CANDIDATES);
-  assert.match(prompt, /1\. Munich ramp repost \(planned for 2026-08-07\)/);
-  assert.match(prompt, /3\. New book announcement \(no date set\)/);
+  assert.match(prompt, /1\. Munich ramp repost$/m);
+  assert.match(prompt, /3\. New book announcement$/m);
+});
+
+// Regression: listing planned dates led the model to reject a correct match on
+// the grounds that the date looked like it was in the future.
+test('buildPrompt never shows planned dates', () => {
+  const prompt = buildPrompt('a post about a ramp', CANDIDATES);
+  assert.ok(!prompt.includes('2026-08-07'));
+  assert.ok(!prompt.includes('2026-08-08'));
 });
 
 test('buildPrompt truncates a long post body', () => {
