@@ -111,6 +111,7 @@ function newPostProperties(post: LinkedInPost) {
   return {
     [PROP.title]: { title: [{ text: { content: title } }] },
     [PROP.url]: { url: post.url },
+    [PROP.analyticsUrl]: { url: analyticsUrlFor(post.urn) },
     [PROP.date]: { date: { start: postDateStr(post) } },
     ...engagementProperties(post),
   };
@@ -150,6 +151,7 @@ export async function stampPostUrl(pageId: string, post: LinkedInPost): Promise<
   const page = await notionFetch(`/pages/${pageId}`, 'PATCH', {
     properties: {
       [PROP.url]: { url: post.url },
+      [PROP.analyticsUrl]: { url: analyticsUrlFor(post.urn) },
       ...engagementProperties(post),
     },
   });
@@ -193,10 +195,15 @@ function analyticsProperties(a: PostAnalytics) {
   };
 }
 
-// Update all analytics columns on an existing row in place.
-export async function updateAnalytics(pageId: string, a: PostAnalytics): Promise<string> {
+// Update all analytics columns on an existing row in place. Also (re)writes the
+// Analytics URL so rows created before that column was automated self-heal on
+// the next weekly run.
+export async function updateAnalytics(pageId: string, a: PostAnalytics, urn: string): Promise<string> {
   const page = await notionFetch(`/pages/${pageId}`, 'PATCH', {
-    properties: analyticsProperties(a),
+    properties: {
+      ...analyticsProperties(a),
+      [PROP.analyticsUrl]: { url: analyticsUrlFor(urn) },
+    },
   });
   return page.url;
 }
@@ -209,6 +216,7 @@ export async function addPostWithAnalytics(post: LinkedInPost, a: PostAnalytics)
     properties: {
       [PROP.title]: { title: [{ text: { content: title } }] },
       [PROP.url]: { url: post.url },
+      [PROP.analyticsUrl]: { url: analyticsUrlFor(post.urn) },
       [PROP.date]: { date: { start: postDateStr(post) } },
       ...analyticsProperties(a),
     },
