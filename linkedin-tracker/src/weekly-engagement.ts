@@ -54,7 +54,7 @@ try {
       const analytics = await getPostAnalytics(page, activityId);
       const existingId = await findExistingPage(post);
       if (existingId) {
-        await updateAnalytics(existingId, analytics);
+        await updateAnalytics(existingId, analytics, post.urn);
         updated++;
         console.log(`  ✓ updated ${activityId} (impressions ${analytics.impressions}, reactions ${analytics.reactions})`);
       } else {
