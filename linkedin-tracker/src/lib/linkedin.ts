@@ -38,6 +38,10 @@ export async function openBrowser(): Promise<BrowserContext> {
     channel: 'chrome',
     headless: config.headless,
     viewport: { width: 1280, height: 900 },
+    // Playwright passes --no-sandbox unless this is explicitly true, which is
+    // both a needless privilege escalation and one more way this profile looks
+    // unlike an ordinary browser. The elfried-samba tracker already sets it.
+    chromiumSandbox: true,
     args: ['--disable-blink-features=AutomationControlled'],
   });
 }
