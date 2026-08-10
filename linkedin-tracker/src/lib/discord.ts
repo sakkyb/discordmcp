@@ -9,7 +9,16 @@ export function plainUrl(url: string): string {
   return q === -1 ? url : url.slice(0, q);
 }
 
+// Discord rejects anything over 2000 characters with a 400. A Playwright
+// failure pasted into an alert blows straight past that, so the alert about a
+// failed send was itself failing — leaving the failure completely silent.
+const DISCORD_MAX = 2000;
+function fit(content: string): string {
+  return content.length <= DISCORD_MAX ? content : `${content.slice(0, DISCORD_MAX - 3)}...`;
+}
+
 async function postMessage(channelId: string, content: string): Promise<void> {
+  content = fit(content);
   const res = await fetch(`${API}/channels/${channelId}/messages`, {
     method: 'POST',
     headers: {

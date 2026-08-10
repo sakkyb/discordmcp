@@ -20,6 +20,9 @@ validateConfig();
 const DRY_RUN = process.env.DRY_RUN === 'true';
 if (DRY_RUN) console.log('DRY RUN — no Notion or Discord writes will be made.');
 
+// Only same-day posts get announced; see the guard further down.
+const ANNOUNCE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 const state = loadState();
 const firstRun = state.knownUrns.length === 0;
 
@@ -109,8 +112,17 @@ for (const post of newPosts.reverse()) { // oldest first so ordering reads natur
     console.error('  → Notion write failed:', error);
   }
 
+  // Announce same-day posts only. After an outage the tracker catches up on
+  // everything it missed, and a day-old "Today's post is now live" is worse
+  // than no message — the row is still stamped and recorded, just not shouted
+  // about.
+  const ageMs = Date.now() - postCreatedAt(post.urn).getTime();
+  const tooOldToAnnounce = ageMs > ANNOUNCE_MAX_AGE_MS;
+
   if (DRY_RUN) {
     console.log(`  → (dry run) skipped Discord and WhatsApp.${unmatchedNote ? ` Would have added: "${unmatchedNote}"` : ''}`);
+  } else if (tooOldToAnnounce) {
+    console.log(`  → Recorded but not announced: post is ${(ageMs / 3_600_000).toFixed(1)}h old (catch-up after an outage).`);
   } else {
     try {
       await notifyNewPost(post.url, unmatchedNote ?? undefined);
