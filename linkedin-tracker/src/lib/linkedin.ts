@@ -68,12 +68,16 @@ export async function assertLoggedIn(page: Page): Promise<void> {
   // and fail much later as a bogus "no post cards / markup changed" error.
   // Detect it from the page: the join form is present and the authenticated
   // global nav is not.
+  // Detect it from the sign-in/join form itself. An earlier version of this
+  // check also required the authenticated nav to be *absent*, testing for the
+  // word "Notifications" — but the logged-out page says "0 notifications", so
+  // that clause matched and suppressed the whole check. Credential inputs and
+  // join copy exist only when logged out, so test for those alone.
   const guestWall = await page
     .evaluate(() => {
+      if (document.querySelector('input[name="session_password"], input[name="session_key"], input#password')) return true;
       const text = document.body?.innerText ?? '';
-      const joinForm = /Agree & Join|Already on LinkedIn\?|Join LinkedIn/i.test(text);
-      const authedNav = /My Network|Notifications|Messaging/i.test(text) || !!document.querySelector('.global-nav__me');
-      return joinForm && !authedNav;
+      return /Agree & Join|Join LinkedIn|New to LinkedIn\?/i.test(text);
     })
     .catch(() => false);
 
