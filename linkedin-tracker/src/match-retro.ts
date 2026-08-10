@@ -3,12 +3,18 @@
 // before trusting it, and finding rows the old date-only matcher auto-created
 // (their title is the raw first line of the post) so they can be merged by hand.
 import { openBrowser, getRecentPosts, postCreatedAt } from './lib/linkedin.js';
-import { findExistingPage, findUnstampedCandidates, notionFetch, PROP } from './lib/notion.js';
+import {
+  findExistingPage, findUnstampedCandidates, notionFetch, PROP, stampPostUrl, replacePageBody,
+} from './lib/notion.js';
 import { chooseRow, classifyPost } from './lib/classify.js';
 import { validateConfig } from './lib/config.js';
 
 validateConfig();
 
+// Report only by default. APPLY=true stamps the high-confidence matches — worth
+// doing before a backfill analytics run, which would otherwise create a fresh
+// duplicate row for every post it cannot find by URL.
+const APPLY = process.env.APPLY === 'true';
 const SINCE_DAYS = Number(process.env.SINCE_DAYS ?? 14);
 const cutoff = Date.now() - SINCE_DAYS * 24 * 60 * 60 * 1000;
 
@@ -27,7 +33,7 @@ try {
 }
 
 posts = posts.filter(p => postCreatedAt(p.urn).getTime() >= cutoff);
-console.log(`\nChecking ${posts.length} posts from the last ${SINCE_DAYS} days.\n`);
+console.log(`\nChecking ${posts.length} posts from the last ${SINCE_DAYS} days.${APPLY ? ' APPLY=true — high-confidence matches will be stamped.' : ''}\n`);
 
 for (const post of posts.reverse()) {
   const date = postCreatedAt(post.urn).toISOString().slice(0, 10);
@@ -50,7 +56,17 @@ for (const post of posts.reverse()) {
   const candidates = await findUnstampedCandidates(postCreatedAt(post.urn));
   const decision = await chooseRow(post.text, candidates, classifyPost);
   if (decision.kind === 'match') {
-    console.log(`   → would match "${decision.candidate.name}" (${decision.reason})`);
+    if (APPLY) {
+      const url = await stampPostUrl(decision.candidate.id, post);
+      try {
+        await replacePageBody(decision.candidate.id, post.text);
+      } catch (error) {
+        console.log(`   (body not replaced: ${error instanceof Error ? error.message : error})`);
+      }
+      console.log(`   ✅ stamped "${decision.candidate.name}" → ${url}`);
+    } else {
+      console.log(`   → would match "${decision.candidate.name}" (${decision.reason})`);
+    }
   } else if (decision.kind === 'none') {
     console.log(`   → no match (${decision.reason}); would create a new row`);
   } else {
