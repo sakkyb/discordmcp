@@ -14,7 +14,13 @@ validateConfig();
 // activity id) instead of a fixed count — used for one-off backfills. When set
 // we fetch a wider window of cards so a busy fortnight is fully covered.
 const SINCE_DAYS = process.env.SINCE_DAYS ? Number(process.env.SINCE_DAYS) : null;
-const POST_LIMIT = SINCE_DAYS ? 40 : 15;
+// POST_IDS retries specific activity ids — a post whose analytics page timed out
+// is a transient failure, and re-running a whole window to catch one straggler
+// costs ~40 minutes of deliberately paced scraping.
+const POST_IDS = process.env.POST_IDS
+  ? new Set(process.env.POST_IDS.split(',').map(s => s.trim()).filter(Boolean))
+  : null;
+const POST_LIMIT = SINCE_DAYS || POST_IDS ? 40 : 15;
 const MAX_START_DELAY_MS = 4 * 60 * 60 * 1000; // random 0–4h after the 01:00 launch → ~1–5am start
 const MIN_GAP_MS = 60_000;   // 60s
 const MAX_GAP_MS = 180_000;  // 180s
@@ -33,6 +39,11 @@ const browser = await openBrowser();
 try {
   const page = browser.pages()[0] ?? await browser.newPage();
   let posts = await getRecentPosts(page, POST_LIMIT);
+  if (POST_IDS) {
+    const before = posts.length;
+    posts = posts.filter(p => POST_IDS.has(p.urn.split(':').pop() ?? ''));
+    console.log(`Scoped to ${posts.length}/${before} posts by POST_IDS.`);
+  }
   if (SINCE_DAYS) {
     const cutoff = Date.now() - SINCE_DAYS * 24 * 60 * 60 * 1000;
     const before = posts.length;
