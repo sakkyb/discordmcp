@@ -37,6 +37,12 @@ export const config = {
   get notionDatabaseId(): string {
     return required('NOTION_LINKEDIN_DATABASE_ID');
   },
+  // Optional. Used to match a live post to its planned row by content. When
+  // absent the tracker falls back to date-only matching, so this deliberately
+  // does NOT appear in validateConfig().
+  get anthropicApiKey(): string | null {
+    return process.env.ANTHROPIC_API_KEY || null;
+  },
   // New posts are announced in Discord (the bot posts to a channel via the REST
   // API — no gateway/intents needed). Channel and mention default to the
   // "LinkedIn Maxxing" #general and adi.lami; override in .env if they change.

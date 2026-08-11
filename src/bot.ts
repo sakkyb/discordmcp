@@ -182,7 +182,16 @@ Remember to:
 
 Provide the post first. Then, on its own line, write exactly this separator:
 --- Alternative hooks ---
-and after it list 3 alternative hook/second line combinations for the other hook styles you did not use.`;
+and after it, for EVERY one of the 6 hook types (How I / How to / Start a story /
+Captivating quote / Surprising statistic / Gut reaction) that you did NOT use for
+the main hook, provide one alternative first-line/second-line combination. Do not
+skip any unused type.
+
+Then, on its own line, write exactly this separator:
+--- Short and sweet ---
+and after it write a standalone short version of the same post: 4-5 lines total,
+stating only the main point/insight. No hook-library structure, no question at the
+end needed — just the core idea, punchy and complete on its own.`;
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-5',
@@ -192,18 +201,25 @@ and after it list 3 alternative hook/second line combinations for the other hook
 
     const postContent = response.content.find(b => b.type === 'text')?.text ?? '';
 
-    // Split the main post from the alternative-hooks section. Only the post
-    // goes through the humanizer — it rewrites prose and would otherwise drop
-    // the trailing hook list. The alternates are re-appended unchanged.
+    // Split the main post from the alternative-hooks and short-and-sweet
+    // sections. Only the main post goes through the humanizer — it rewrites
+    // prose and would otherwise drop the trailing sections. The alternates
+    // and short-and-sweet version are re-appended unchanged.
     const ALT_MARKER = '--- Alternative hooks ---';
-    const markerIdx = postContent.indexOf(ALT_MARKER);
-    const mainPost = markerIdx === -1 ? postContent : postContent.slice(0, markerIdx).trim();
-    const altHooks = markerIdx === -1 ? '' : postContent.slice(markerIdx).trim();
+    const SHORT_MARKER = '--- Short and sweet ---';
+    const altIdx = postContent.indexOf(ALT_MARKER);
+    const shortIdx = postContent.indexOf(SHORT_MARKER);
+    const mainPost = altIdx === -1 ? postContent : postContent.slice(0, altIdx).trim();
+    const altHooks = altIdx === -1
+      ? ''
+      : (shortIdx === -1 ? postContent.slice(altIdx) : postContent.slice(altIdx, shortIdx)).trim();
+    const shortSweet = shortIdx === -1 ? '' : postContent.slice(shortIdx + SHORT_MARKER.length).trim();
 
     // Second pass: strip AI-writing tells so the post reads as human-written.
     const humanizedPost = await humanize(mainPost);
     const result = altHooks ? `${humanizedPost}\n\n${altHooks}` : humanizedPost;
     onDraft(result);
+    if (shortSweet) onDraft(shortSweet);
     return result;
   },
 });
