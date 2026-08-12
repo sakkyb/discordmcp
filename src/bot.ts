@@ -193,9 +193,12 @@ and after it write a standalone short version of the same post: 4-5 lines total,
 stating only the main point/insight. No hook-library structure, no question at the
 end needed — just the core idea, punchy and complete on its own.`;
 
+    // 3000 was enough for the post + 3 alt hooks, but now that we ask for up
+    // to 5 alt hooks plus the short-and-sweet section, that budget was cutting
+    // the response off mid-list before either section finished.
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-5',
-      max_tokens: 3000,
+      max_tokens: 5000,
       messages: [{ role: 'user', content: prompt }],
     });
 
