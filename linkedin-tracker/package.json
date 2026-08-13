@@ -12,20 +12,15 @@
     "backfill:analytics-url": "node build/backfill-analytics-url.js",
     "match:retro": "node build/match-retro.js",
     "login:linkedin": "node build/login-linkedin.js",
-    "login:whatsapp": "node build/login-whatsapp.js",
-    "login:whatsapp-web": "node build/login-whatsapp-web.js",
     "wa:test": "node build/wa-test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
     "dotenv": "^16.4.7",
-    "playwright": "^1.54.0",
-    "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "^1.26.0"
+    "playwright": "^1.54.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.33",
-    "@types/qrcode-terminal": "^0.12.2",
     "typescript": "^5.9.3"
   }
 }

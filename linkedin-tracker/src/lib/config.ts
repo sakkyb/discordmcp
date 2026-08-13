@@ -11,10 +11,6 @@ export const PACKAGE_ROOT = path.resolve(__dirname, '..', '..');
 dotenv.config({ path: path.join(PACKAGE_ROOT, '.env') });
 
 export const CHROME_PROFILE_DIR = path.join(PACKAGE_ROOT, 'chrome-profile');
-export const WHATSAPP_SESSION_DIR = path.join(PACKAGE_ROOT, 'whatsapp-session');
-// Separate persistent Chrome profile for WhatsApp Web (Playwright UI automation),
-// kept apart from the LinkedIn scraping profile so the two sessions don't clash.
-export const WHATSAPP_WEB_PROFILE_DIR = path.join(PACKAGE_ROOT, 'whatsapp-web-profile');
 export const STATE_FILE = path.join(PACKAGE_ROOT, 'state.json');
 
 function required(name: string): string {
@@ -50,7 +46,7 @@ export const config = {
     return required('DISCORD_TOKEN');
   },
   get discordChannelId(): string {
-    return process.env.DISCORD_CHANNEL_ID || '1456685055656329237';
+    return process.env.DISCORD_CHANNEL_ID || '1456684379408695351'; // #content-posted
   },
   // Channel for operational alerts (e.g. WhatsApp send failures) — defaults to
   // "LinkedIn Maxxing" #error-messages, so failures don't get lost in chat.
@@ -61,8 +57,10 @@ export const config = {
     return process.env.DISCORD_MENTION_USER_ID ?? '541101599368675329';
   },
   // Opt-in extra channel: if set, new posts are also sent to this WhatsApp group
-  // by driving WhatsApp Web via Playwright (see lib/whatsapp-web.ts). Empty =
-  // disabled (Discord remains the primary notification).
+  // via the macOS WhatsApp app (see lib/whatsapp-app.ts). Empty = disabled
+  // (Discord remains the primary notification). The name is not used to select
+  // the chat — the app stays parked on it — but it gates the send and labels
+  // the log line.
   get whatsappWebGroup(): string | null {
     return process.env.WHATSAPP_WEB_GROUP_NAME || null;
   },
@@ -70,13 +68,6 @@ export const config = {
   // why you want headless.
   get headless(): boolean {
     return process.env.HEADLESS === 'true';
-  },
-  // whatsapp-web.js drives Chrome via puppeteer. We point it at the system
-  // Google Chrome (a universal binary → runs natively on arm64) instead of
-  // puppeteer's bundled Chromium — more robust and matches the LinkedIn
-  // scraper, which also uses real Chrome. Override via CHROME_PATH if needed.
-  get chromePath(): string {
-    return process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   },
 };
 
