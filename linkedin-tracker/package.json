@@ -13,7 +13,8 @@
     "match:retro": "node build/match-retro.js",
     "login:linkedin": "node build/login-linkedin.js",
     "login:whatsapp": "node build/login-whatsapp.js",
-    "login:whatsapp-web": "node build/login-whatsapp-web.js"
+    "login:whatsapp-web": "node build/login-whatsapp-web.js",
+    "wa:test": "node build/wa-test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

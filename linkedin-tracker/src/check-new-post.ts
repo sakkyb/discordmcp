@@ -10,7 +10,7 @@ import {
 } from './lib/notion.js';
 import { chooseRow, classifyPost } from './lib/classify.js';
 import { notifyNewPost, sendDiscordAlert, plainUrl } from './lib/discord.js';
-import { sendWhatsAppMessage } from './lib/whatsapp-web.js';
+import { sendViaWhatsAppApp } from './lib/whatsapp-app.js';
 import { config, validateConfig } from './lib/config.js';
 
 validateConfig();
@@ -131,10 +131,10 @@ for (const post of newPosts.reverse()) { // oldest first so ordering reads natur
       console.error('  → Discord notify failed:', error);
     }
 
-    // Opt-in extra channel: WhatsApp group via WhatsApp Web (Playwright).
+    // Opt-in extra channel: WhatsApp group via the macOS WhatsApp app.
     if (config.whatsappWebGroup) {
       try {
-        await sendWhatsAppMessage(config.whatsappWebGroup, `Today's post is now live: ${plainUrl(post.url)}`);
+        await sendViaWhatsAppApp(`Today's post is now live: ${plainUrl(post.url)}`);
         console.log(`  → Sent to WhatsApp group "${config.whatsappWebGroup}".`);
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
