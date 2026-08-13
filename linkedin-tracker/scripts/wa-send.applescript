@@ -17,6 +17,28 @@
 -- group. A recovery path that can post garbage to a real chat is worse than no
 -- recovery path; if the app is not parked on the chat, a human should fix it.
 --
+-- MACOS PERMISSIONS — the thing that will bite you:
+-- Sending keystrokes goes through System Events, which needs TWO separate
+-- grants, and they attach to the *responsible* process:
+--
+--   Accessibility  (Privacy & Security > Accessibility)
+--   Automation     (caller -> System Events)
+--
+-- Run from a terminal, the responsible process is the TERMINAL, so its grants
+-- cover everything it spawns and this all "just works". Run from launchd, the
+-- responsible process is the binary in the plist (/opt/homebrew/bin/node —
+-- note that is a DIFFERENT install from a shell's /usr/local/bin/node), which
+-- needs its own grants.
+--
+-- Symptom when Automation has not been granted: osascript HANGS rather than
+-- erroring. macOS does raise the "<x> wants access to control System Events"
+-- dialog, but a scheduled job has nobody to click it, so it blocks until the
+-- caller's timeout. If a send times out with no stderr, look at the screen for
+-- a pending permission dialog before assuming the script is broken.
+--
+-- Verify the real path with: npm run wa:test  (run it under launchd, not just
+-- from a shell — a shell test passes even when production is broken).
+
 -- Note for anyone extending this: WhatsApp's accessibility tree exposes roles
 -- but every text value reads as "missing value", and `entire contents of
 -- window 1` comes back empty. AXFocusedUIElement is the one thing that works,
