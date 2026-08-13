@@ -27,10 +27,17 @@ export async function sendViaWhatsAppApp(message: string, timeoutMs = 60_000): P
       throw new Error(`unexpected result from wa-send.applescript: ${stdout.trim().slice(0, 200)}`);
     }
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    // osascript puts the AppleScript `error` text on stderr, which execFile
-    // surfaces here — including the "not parked on a chat" refusal, which is
-    // the one a human needs to act on.
-    throw new Error(`WhatsApp app send failed: ${detail.replace(/\s+/g, ' ').slice(0, 400)}`);
+    // The reason lives on error.stderr, NOT error.message. execFile's message is
+    // only "Command failed: <the whole command>", which for this script is a
+    // long path plus the post URL and says nothing about what went wrong — the
+    // first failure in production reported exactly that and was undiagnosable.
+    const e = error as { stderr?: string; stdout?: string; code?: number; killed?: boolean; message?: string };
+    const stderr = (e.stderr ?? '').trim();
+    const parts = [
+      stderr || '(no stderr)',
+      e.killed ? `killed after ${timeoutMs / 1000}s timeout` : '',
+      e.code != null ? `exit ${e.code}` : '',
+    ].filter(Boolean);
+    throw new Error(`WhatsApp app send failed: ${parts.join(' · ').replace(/\s+/g, ' ').slice(0, 600)}`);
   }
 }
