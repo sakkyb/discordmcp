@@ -57,8 +57,16 @@ on run argv
 	tell application "WhatsApp" to activate
 	delay 1.2
 
+	-- Having the chat open is NOT the same as the composer having keyboard focus.
+	-- If anything else was clicked last (the message list, the search box), or the
+	-- app was activated from the background, focus lands on an AXGroup instead —
+	-- which is exactly how this failed in production on 2026-08-14. So try to
+	-- focus the composer first, and only then insist on it.
 	if not (my composerHasFocus()) then
-		error "WhatsApp is not parked on a chat with the message composer focused — refusing to type. Open the group chat and click into the message box."
+		my clickComposer()
+		if not (my composerHasFocus()) then
+			error "WhatsApp is not parked on a chat with the message composer focused — refusing to type. Open the group chat and click into the message box."
+		end if
 	end if
 
 	tell application "System Events"
@@ -90,3 +98,26 @@ on composerHasFocus()
 	end tell
 	return false
 end composerHasFocus
+
+-- Click where the composer sits: bottom-centre of the window. WhatsApp's
+-- accessibility tree is too shallow to locate the element (window 1 exposes one
+-- group containing one group, and no text areas at any level), so position is
+-- the only handle available.
+--
+-- Clicking is safe even if the aim is wrong: it cannot send anything, and
+-- composerHasFocus() still gates the typing. With no chat open there is no
+-- composer, focus does not become AXTextArea, and the caller refuses as before.
+on clickComposer()
+	tell application "System Events"
+		tell process "WhatsApp"
+			try
+				set p to position of window 1
+				set sz to size of window 1
+				set cx to (item 1 of p) + (item 1 of sz) / 2
+				set cy to (item 2 of p) + (item 2 of sz) - 30
+				click at {cx, cy}
+				delay 0.8
+			end try
+		end tell
+	end tell
+end clickComposer
