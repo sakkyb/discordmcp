@@ -33,6 +33,14 @@ export const config = {
   get notionDatabaseId(): string {
     return required('NOTION_LINKEDIN_DATABASE_ID');
   },
+  // Which python3 runs the OCR chat-header check. Must have pyobjc installed
+  // (pyobjc-framework-Vision, pyobjc-framework-Quartz). Defaults to an absolute
+  // path rather than relying on PATH: launchd runs with a minimal PATH where
+  // `python3` resolves to /usr/bin/python3, which has no pyobjc — the same
+  // environment trap that made the node binary need its own permission grants.
+  get pythonBin(): string {
+    return process.env.PYTHON_BIN || '/usr/local/bin/python3';
+  },
   // Optional. Used to match a live post to its planned row by content. When
   // absent the tracker falls back to date-only matching, so this deliberately
   // does NOT appear in validateConfig().

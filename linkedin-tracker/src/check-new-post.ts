@@ -134,7 +134,7 @@ for (const post of newPosts.reverse()) { // oldest first so ordering reads natur
     // Opt-in extra channel: WhatsApp group via the macOS WhatsApp app.
     if (config.whatsappWebGroup) {
       try {
-        await sendViaWhatsAppApp(`Today's post is now live: ${plainUrl(post.url)}`);
+        await sendViaWhatsAppApp(`Today's post is now live: ${plainUrl(post.url)}`, config.whatsappWebGroup);
         console.log(`  → Sent to WhatsApp group "${config.whatsappWebGroup}".`);
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);

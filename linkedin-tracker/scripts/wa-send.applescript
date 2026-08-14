@@ -47,8 +47,8 @@
 -- focus. That is why the window must stay dedicated to the group.
 
 on run argv
-	if (count of argv) < 1 then error "usage: wa-send.applescript <message>"
-	set theMessage to item 1 of argv
+	if (count of argv) < 1 then error "usage: wa-send.applescript prepare | send <message>"
+	set mode to item 1 of argv
 
 	tell application "System Events"
 		if not (exists process "WhatsApp") then error "WhatsApp is not running"
@@ -69,20 +69,24 @@ on run argv
 		end if
 	end if
 
-	tell application "System Events"
-		tell process "WhatsApp"
-			-- Clear any half-typed draft so it is not prepended to the message.
-			keystroke "a" using command down
-			delay 0.2
-			key code 51
-			delay 0.3
-
-			keystroke theMessage
-			delay 0.6
-			key code 36 -- Return sends
-			delay 0.5
+	if mode is "prepare" then
+		-- Hand the window geometry back so the caller can screenshot the chat
+		-- header and confirm WHICH chat this is before anything gets typed.
+		-- The accessibility tree exposes no text, so OCR is the only way to know.
+		tell application "System Events" to tell process "WhatsApp"
+			set p to position of window 1
+			set sz to size of window 1
+			set b to ((item 1 of p) as integer) as text
+			set b to b & "," & (((item 2 of p) as integer) as text)
+			set b to b & "," & (((item 1 of sz) as integer) as text)
+			set b to b & "," & (((item 2 of sz) as integer) as text)
+			return b
 		end tell
-	end tell
+	end if
+
+	if mode is not "send" then error "unknown mode: " & mode
+	if (count of argv) < 2 then error "send mode needs a message"
+	my typeAndSend(item 2 of argv)
 	return "sent"
 end run
 
@@ -121,3 +125,20 @@ on clickComposer()
 		end tell
 	end tell
 end clickComposer
+
+on typeAndSend(theMessage)
+	tell application "System Events"
+		tell process "WhatsApp"
+			-- Clear any half-typed draft so it is not prepended to the message.
+			keystroke "a" using command down
+			delay 0.2
+			key code 51
+			delay 0.3
+
+			keystroke theMessage
+			delay 0.6
+			key code 36 -- Return sends
+			delay 0.5
+		end tell
+	end tell
+end typeAndSend
