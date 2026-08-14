@@ -90,9 +90,20 @@ on run argv
 	return "sent"
 end run
 
--- True only when the focused element is a text area, i.e. the message composer.
+-- True only when WhatsApp is FRONTMOST *and* its focused element is a text area.
+--
+-- Both halves matter. AXFocusedUIElement reports the app's INTERNAL focus, which
+-- stays on the composer even while the app sits in the background — but
+-- `keystroke` goes to whatever is frontmost, not to whoever owns that attribute.
+-- Checking focus alone let a launchd run report "sent" while typing into another
+-- application entirely: the message never reached the chat and nothing errored.
 on composerHasFocus()
 	tell application "System Events"
+		try
+			if not (frontmost of process "WhatsApp") then return false
+		on error
+			return false
+		end try
 		tell process "WhatsApp"
 			try
 				set f to value of attribute "AXFocusedUIElement"
