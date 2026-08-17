@@ -10,7 +10,7 @@ import {
 } from './lib/notion.js';
 import { chooseRow, classifyPost } from './lib/classify.js';
 import { notifyNewPost, sendDiscordAlert, plainUrl } from './lib/discord.js';
-import { sendViaWhatsAppApp } from './lib/whatsapp-app.js';
+import { sendViaWhatsAppApp, gatherWhatsAppEvidence } from './lib/whatsapp-app.js';
 import { config, validateConfig } from './lib/config.js';
 
 validateConfig();
@@ -139,9 +139,15 @@ for (const post of newPosts.reverse()) { // oldest first so ordering reads natur
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         console.error('  → WhatsApp send failed:', msg);
-        // Surface the failure in Discord so it's never silent (Discord is reliable).
+        // Surface the failure in Discord so it's never silent (Discord is reliable),
+        // carrying enough state to name the cause rather than restate the symptom.
         try {
-          await sendDiscordAlert(`WhatsApp notification did NOT send for today's post (${plainUrl(post.url)}).\n${msg}`);
+          const { summary, files } = await gatherWhatsAppEvidence();
+          console.error(`  → ${summary.split('\n')[0]}`);
+          await sendDiscordAlert(
+            `WhatsApp notification did NOT send for today's post (${plainUrl(post.url)}).\n${msg}\n\n${summary}`,
+            files,
+          );
         } catch (alertErr) {
           console.error('  → Discord alert also failed:', alertErr instanceof Error ? alertErr.message : alertErr);
         }
