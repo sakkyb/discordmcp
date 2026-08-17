@@ -25,10 +25,27 @@ from Foundation import NSURL
 HEADER_HEIGHT = 70  # the chat title sits in the top strip of the window
 
 
+# Glyphs Vision routinely swaps for one another. Folding each confusion set to a
+# single representative makes the comparison robust to OCR noise without making
+# it permissive: two genuinely different chat names do not collide under this.
+#
+# Added 2026-08-17 after a real abort: Vision read "LinkedIn Maxxing" as
+# "Linked-l-n Maxxing" — capital I as lowercase L — and the send was refused on
+# the CORRECT chat. Case folding alone was not enough; I/l/1 is the classic
+# confusion and this check sits in front of every send.
+CONFUSABLE = str.maketrans({
+    "l": "i", "1": "i", "|": "i", "!": "i",  # I / l / 1 / | are near-identical
+    "0": "o",
+    "5": "s",
+    "8": "b",
+    "2": "z",
+})
+
+
 def normalise(s: str) -> str:
-    # OCR is not character-exact — it reads "LinkedIn Maxxing" as "Linkedin
-    # Maxxing". Compare on letters and digits only, case-insensitively; never ==.
-    return re.sub(r"[^a-z0-9]", "", s.lower())
+    # OCR is not character-exact. Compare on letters and digits only,
+    # case-insensitively, with confusable glyphs folded together; never ==.
+    return re.sub(r"[^a-z0-9]", "", s.lower().translate(CONFUSABLE))
 
 
 def ocr(path: str) -> list[str]:
