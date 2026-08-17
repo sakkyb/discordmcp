@@ -17,16 +17,32 @@ function fit(content: string): string {
   return content.length <= DISCORD_MAX ? content : `${content.slice(0, DISCORD_MAX - 3)}...`;
 }
 
-async function postMessage(channelId: string, content: string): Promise<void> {
+export interface DiscordFile { name: string; data: Buffer }
+
+async function postMessage(channelId: string, content: string, files: DiscordFile[] = []): Promise<void> {
   content = fit(content);
-  const res = await fetch(`${API}/channels/${channelId}/messages`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bot ${config.discordToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ content }),
-  });
+  const url = `${API}/channels/${channelId}/messages`;
+  const auth = { Authorization: `Bot ${config.discordToken}` };
+
+  // JSON for the common case; multipart only when there is something to attach.
+  // Note: do NOT set Content-Type for multipart — fetch derives it from FormData
+  // and must include the boundary.
+  let res: Response;
+  if (files.length) {
+    const form = new FormData();
+    form.append('payload_json', JSON.stringify({ content }));
+    // Buffer is a Uint8Array subclass, but its generic type does not satisfy
+    // BlobPart under @types/node — wrap it rather than casting the type away.
+    files.forEach((f, i) => form.append(`files[${i}]`, new Blob([new Uint8Array(f.data)]), f.name));
+    res = await fetch(url, { method: 'POST', headers: auth, body: form });
+  } else {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+  }
+
   if (!res.ok) {
     const detail = await res.text();
     throw new Error(`Discord message failed (${res.status}): ${detail}`);
@@ -47,6 +63,8 @@ export async function notifyNewPost(postUrl: string, note?: string): Promise<voi
 }
 
 // Operational alert (e.g. WhatsApp send failed) → the alert channel (#errors-sakky).
-export async function sendDiscordAlert(text: string): Promise<void> {
-  await postMessage(config.discordAlertChannelId, `⚠️ ${text}`);
+// Attachments are for failure evidence only — never attach on a success path,
+// since a WhatsApp screenshot shows the group's contents.
+export async function sendDiscordAlert(text: string, files: DiscordFile[] = []): Promise<void> {
+  await postMessage(config.discordAlertChannelId, `⚠️ ${text}`, files);
 }
