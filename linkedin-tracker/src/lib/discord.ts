@@ -46,7 +46,7 @@ export async function notifyNewPost(postUrl: string, note?: string): Promise<voi
   await postMessage(config.discordChannelId, note ? `${body}\n\n${note}` : body);
 }
 
-// Operational alert (e.g. WhatsApp send failed) → the alert channel (#random-chat).
+// Operational alert (e.g. WhatsApp send failed) → the alert channel (#errors-sakky).
 export async function sendDiscordAlert(text: string): Promise<void> {
   await postMessage(config.discordAlertChannelId, `⚠️ ${text}`);
 }

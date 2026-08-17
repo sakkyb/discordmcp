@@ -126,7 +126,7 @@ for (const post of newPosts.reverse()) { // oldest first so ordering reads natur
   } else {
     try {
       await notifyNewPost(post.url, unmatchedNote ?? undefined);
-      console.log('  → Announced in Discord #general.');
+      console.log('  → Announced in Discord #content-posted.');
     } catch (error) {
       console.error('  → Discord notify failed:', error);
     }
