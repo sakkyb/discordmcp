@@ -49,7 +49,7 @@ export const config = {
   },
   // New posts are announced in Discord (the bot posts to a channel via the REST
   // API — no gateway/intents needed). Channel and mention default to the
-  // "LinkedIn Maxxing" #general and adi.lami; override in .env if they change.
+  // "LinkedIn Maxxing" #content-posted and adi.lami; override in .env if they change.
   get discordToken(): string {
     return required('DISCORD_TOKEN');
   },
@@ -57,7 +57,7 @@ export const config = {
     return process.env.DISCORD_CHANNEL_ID || '1456684379408695351'; // #content-posted
   },
   // Channel for operational alerts (e.g. WhatsApp send failures) — defaults to
-  // "LinkedIn Maxxing" #error-messages, so failures don't get lost in chat.
+  // "LinkedIn Maxxing" #errors-sakky, so failures don't get lost in chat.
   get discordAlertChannelId(): string {
     return process.env.DISCORD_ALERT_CHANNEL_ID || '1537381914543915048';
   },

@@ -3,14 +3,17 @@
 // Re-runs are naturally idempotent: a post already in state.json is ignored,
 // so the 30/60-minute retry slots simply no-op once the post has been caught.
 import { openBrowser, getRecentPosts, postCreatedAt } from './lib/linkedin.js';
-import { loadState, saveState } from './lib/state.js';
+import {
+  loadState, saveState, recordWhatsAppFailure, clearWhatsAppPending, duePending,
+  MAX_WHATSAPP_ATTEMPTS,
+} from './lib/state.js';
 import {
   addPost, findExistingPage, updateEngagement, findDatedRowsNeedingUrl, stampPostUrl,
   postDateStr, findUnstampedCandidates, replacePageBody,
 } from './lib/notion.js';
 import { chooseRow, classifyPost } from './lib/classify.js';
 import { notifyNewPost, sendDiscordAlert, plainUrl } from './lib/discord.js';
-import { sendViaWhatsAppApp } from './lib/whatsapp-app.js';
+import { sendViaWhatsAppApp, gatherWhatsAppEvidence } from './lib/whatsapp-app.js';
 import { config, validateConfig } from './lib/config.js';
 
 validateConfig();
@@ -40,6 +43,49 @@ try {
 console.log(`Found ${posts.length} recent posts on the profile.`);
 
 const newPosts = posts.filter(p => !state.knownUrns.includes(p.urn));
+
+// One place that sends, records the outcome and alerts — used by both the
+// new-post path and the retry path so they cannot drift apart.
+async function trySendWhatsApp(urn: string, url: string): Promise<boolean> {
+  if (!config.whatsappWebGroup) return true;
+  try {
+    await sendViaWhatsAppApp(`Today's post is now live: ${plainUrl(url)}`, config.whatsappWebGroup);
+    console.log(`  → Sent to WhatsApp group "${config.whatsappWebGroup}".`);
+    state.pendingWhatsApp = clearWhatsAppPending(state.pendingWhatsApp, urn);
+    return true;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('  → WhatsApp send failed:', msg);
+    state.pendingWhatsApp = recordWhatsAppFailure(state.pendingWhatsApp, urn, url);
+    const attempts = state.pendingWhatsApp.find((p) => p.urn === urn)?.attempts ?? 1;
+    const giveUp = attempts >= MAX_WHATSAPP_ATTEMPTS;
+    // Surface the failure in Discord so it's never silent (Discord is reliable),
+    // carrying enough state to name the cause rather than restate the symptom.
+    try {
+      const { summary, files } = await gatherWhatsAppEvidence();
+      console.error(`  → ${summary.split('\n')[0]}`);
+      await sendDiscordAlert(
+        `WhatsApp notification did NOT send for today's post (${plainUrl(url)}). ` +
+        `Attempt ${attempts}/${MAX_WHATSAPP_ATTEMPTS}${giveUp ? ' — giving up.' : ' — will retry next slot.'}\n${msg}\n\n${summary}`,
+        files,
+      );
+    } catch (alertErr) {
+      console.error('  → Discord alert also failed:', alertErr instanceof Error ? alertErr.message : alertErr);
+    }
+    return false;
+  }
+}
+
+// Retry any WhatsApp sends that failed on an earlier slot. This runs BEFORE the
+// no-new-posts exit, because a retry is due whether or not there is a new post —
+// putting it after would mean retries only ever ran on days with a new post.
+const retries = duePending(state.pendingWhatsApp, (urn) =>
+  Date.now() - postCreatedAt(urn).getTime() <= ANNOUNCE_MAX_AGE_MS);
+for (const p of retries) {
+  console.log(`Retrying WhatsApp for ${p.urn} (attempt ${p.attempts + 1}/${MAX_WHATSAPP_ATTEMPTS})...`);
+  await trySendWhatsApp(p.urn, p.url);
+}
+if (retries.length) saveState(state);
 
 if (newPosts.length === 0) {
   console.log('No new posts since last check.');
@@ -126,27 +172,14 @@ for (const post of newPosts.reverse()) { // oldest first so ordering reads natur
   } else {
     try {
       await notifyNewPost(post.url, unmatchedNote ?? undefined);
-      console.log('  → Announced in Discord #general.');
+      console.log('  → Announced in Discord #content-posted.');
     } catch (error) {
       console.error('  → Discord notify failed:', error);
     }
 
-    // Opt-in extra channel: WhatsApp group via the macOS WhatsApp app.
-    if (config.whatsappWebGroup) {
-      try {
-        await sendViaWhatsAppApp(`Today's post is now live: ${plainUrl(post.url)}`, config.whatsappWebGroup);
-        console.log(`  → Sent to WhatsApp group "${config.whatsappWebGroup}".`);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        console.error('  → WhatsApp send failed:', msg);
-        // Surface the failure in Discord so it's never silent (Discord is reliable).
-        try {
-          await sendDiscordAlert(`WhatsApp notification did NOT send for today's post (${plainUrl(post.url)}).\n${msg}`);
-        } catch (alertErr) {
-          console.error('  → Discord alert also failed:', alertErr instanceof Error ? alertErr.message : alertErr);
-        }
-      }
-    }
+    // Opt-in extra channel: WhatsApp group via the macOS WhatsApp app. A failure
+    // here is recorded for retry on a later slot rather than lost.
+    await trySendWhatsApp(post.urn, post.url);
 
     // Mark as seen even if a notification failed — we'd rather miss one
     // notification than re-spam the channel on every retry slot. Dry runs skip

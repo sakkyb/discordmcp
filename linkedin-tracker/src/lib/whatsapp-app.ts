@@ -23,13 +23,19 @@
 // Requirements: the Mac stays logged in with the WhatsApp app running and
 // parked on the target chat. The send steals focus for ~2s.
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { PACKAGE_ROOT, config } from './config.js';
+import { parseProbe, describeProbe } from './wa-probe.js';
+import type { DiscordFile } from './discord.js';
 
 const execFileAsync = promisify(execFile);
 const SEND_SCRIPT = path.join(PACKAGE_ROOT, 'scripts', 'wa-send.applescript');
 const OCR_SCRIPT = path.join(PACKAGE_ROOT, 'scripts', 'ocr-chat-header.py');
+const DISPLAY_SCRIPT = path.join(PACKAGE_ROOT, 'scripts', 'display-count.py');
+const OCR_SCREEN_SCRIPT = path.join(PACKAGE_ROOT, 'scripts', 'ocr-screen.py');
 
 // Set WHATSAPP_SKIP_CHAT_VERIFY=true to send without the OCR check — an escape
 // hatch for a machine without the Screen Recording grant, at the cost of the
@@ -47,6 +53,61 @@ function reason(error: unknown, timeoutMs: number): string {
     e.killed ? `killed after ${timeoutMs / 1000}s timeout` : '',
     e.code != null ? `exit ${e.code}` : '',
   ].filter(Boolean).join(' · ').replace(/\s+/g, ' ').slice(0, 600);
+}
+
+// Collect everything needed to identify a send failure, at the moment it fails.
+// Entirely best-effort: a diagnostic that throws would mask the real error.
+//
+// Before this existed, every failure produced the same sentence and no state, so
+// five production failures in a row identified nothing.
+export async function gatherWhatsAppEvidence(): Promise<{ summary: string; files: DiscordFile[] }> {
+  let displays: number | null = null;
+  let geometry = 'unknown';
+  try {
+    const { stdout } = await execFileAsync(config.pythonBin, [DISPLAY_SCRIPT], { timeout: 15_000 });
+    const n = /displays=(\d+)/.exec(stdout);
+    if (n) displays = Number(n[1]);
+    geometry = /geometry=(\S+)/.exec(stdout)?.[1] ?? 'unknown';
+  } catch { /* leave displays null — "unknown" is itself reported */ }
+
+  let probeRaw = '';
+  try {
+    const { stdout } = await execFileAsync('osascript', [SEND_SCRIPT, 'probe'], { timeout: 30_000 });
+    probeRaw = stdout.trim();
+  } catch { /* an unreadable probe still leaves the display count useful */ }
+
+  // What the screen actually SAYS. The accessibility tree cannot answer this —
+  // every WhatsApp text value reads as "missing value" — so a blocking update
+  // sheet, a permission dialog and a normal chat all look identical to AX.
+  let screenText = '';
+  try {
+    const { stdout } = await execFileAsync(config.pythonBin, [OCR_SCREEN_SCRIPT], { timeout: 30_000 });
+    screenText = stdout.trim();
+  } catch { /* OCR is a bonus; the probe and display count stand on their own */ }
+
+  const probe = parseProbe(probeRaw);
+  const summary = [
+    describeProbe(probe, displays, screenText),
+    `displays=${displays ?? 'unknown'} geometry=${geometry}`,
+    `frontmost=${probe.frontmostApp} waFrontmost=${probe.waFrontmost} focusedRole=${probe.focusedRole} windows=${probe.windowCount} bounds=${probe.bounds || 'none'}`,
+    `screen: ${screenText ? screenText.slice(0, 400) : '(OCR unavailable — likely no display, or no Screen Recording grant)'}`,
+  ].join('\n');
+
+  // A screenshot with zero displays fails, and that failure corroborates the count.
+  //
+  // JPEG, not PNG: a 2560x1440 PNG of this screen measured 5MB, and a post can
+  // fail three times before giving up. The screenshot is a human sanity-check —
+  // the machine-readable text is already in `screen:` above via Vision — so
+  // compression costs nothing that matters and saves ~15MB per failed post.
+  const files: DiscordFile[] = [];
+  const shot = path.join(os.tmpdir(), `wa-failure-${Date.now()}.jpg`);
+  try {
+    await execFileAsync('screencapture', ['-x', '-t', 'jpg', shot], { timeout: 20_000 });
+    files.push({ name: 'whatsapp-at-failure.jpg', data: fs.readFileSync(shot) });
+  } catch { /* no screenshot; the summary already says why */ }
+  finally { try { fs.unlinkSync(shot); } catch { /* nothing to clean up */ } }
+
+  return { summary, files };
 }
 
 export async function sendViaWhatsAppApp(
