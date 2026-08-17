@@ -47,8 +47,14 @@
 -- focus. That is why the window must stay dedicated to the group.
 
 on run argv
-	if (count of argv) < 1 then error "usage: wa-send.applescript prepare | send <message>"
+	if (count of argv) < 1 then error "usage: wa-send.applescript probe | prepare | send <message>"
 	set mode to item 1 of argv
+
+	-- `probe` reports state and returns. It must run BEFORE the WhatsApp-running
+	-- check and before activate, because "WhatsApp isn't running" is itself a
+	-- diagnosis we want reported rather than thrown — and because a probe that
+	-- activates the app would change the very state it is trying to observe.
+	if mode is "probe" then return my probeState()
 
 	tell application "System Events"
 		if not (exists process "WhatsApp") then error "WhatsApp is not running"
@@ -113,6 +119,46 @@ on composerHasFocus()
 	end tell
 	return false
 end composerHasFocus
+
+-- Report the state a failed send actually saw. Every field is independently
+-- try-wrapped: a probe that throws tells us nothing, and it runs precisely when
+-- things are already broken.
+--
+-- Deliberately does NOT activate WhatsApp or check that it is running — both
+-- would alter or abort the observation. "WhatsApp isn't running" shows up here
+-- as windowCount=0 with some other app frontmost, which is the useful form.
+on probeState()
+	set waFront to "false"
+	set frontApp to "unknown"
+	set focRole to "none"
+	set winCount to "0"
+	set b to ""
+	tell application "System Events"
+		try
+			set frontApp to name of first process whose frontmost is true
+		end try
+		try
+			if frontmost of process "WhatsApp" then set waFront to "true"
+		end try
+		try
+			tell process "WhatsApp"
+				try
+					set winCount to (count of windows) as text
+				end try
+				try
+					set f to value of attribute "AXFocusedUIElement"
+					set focRole to (role of f) as text
+				end try
+				try
+					set p to position of window 1
+					set sz to size of window 1
+					set b to (((item 1 of p) as integer) as text) & "," & (((item 2 of p) as integer) as text) & "," & (((item 1 of sz) as integer) as text) & "," & (((item 2 of sz) as integer) as text)
+				end try
+			end tell
+		end try
+	end tell
+	return "waFrontmost=" & waFront & "|frontmostApp=" & frontApp & "|focusedRole=" & focRole & "|windowCount=" & winCount & "|bounds=" & b
+end probeState
 
 -- Click where the composer sits: bottom-centre of the window. WhatsApp's
 -- accessibility tree is too shallow to locate the element (window 1 exposes one
