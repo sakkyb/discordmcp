@@ -16,6 +16,12 @@ network, no API key, no LLM; ~150-300ms warm.
 import re
 import subprocess
 import sys
+
+# Absolute path: screencapture lives in /usr/sbin, which is NOT on the PATH
+# launchd gives this job (/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin). A bare
+# name raises FileNotFoundError there while working fine from a shell — the same
+# environment trap that already forced an absolute python3 in config.ts.
+SCREENCAPTURE = "/usr/sbin/screencapture"
 import tempfile
 
 import Quartz
@@ -71,7 +77,7 @@ def main() -> int:
     with tempfile.NamedTemporaryFile(suffix=".png", delete=True) as tmp:
         # -x silences the shutter sound; -R grabs just the header strip.
         r = subprocess.run(
-            ["screencapture", "-x", "-o", "-R", f"{x},{y},{w},{HEADER_HEIGHT}", tmp.name],
+            [SCREENCAPTURE, "-x", "-o", "-R", f"{x},{y},{w},{HEADER_HEIGHT}", tmp.name],
             capture_output=True,
         )
         if r.returncode != 0:
