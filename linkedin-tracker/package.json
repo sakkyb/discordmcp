@@ -8,6 +8,7 @@
     "build": "tsc",
     "test": "npm run build && node --test \"build/**/*.test.js\"",
     "check": "node build/check-new-post.js",
+    "tomorrow": "node build/check-tomorrow-post.js",
     "engagement": "node build/weekly-engagement.js",
     "backfill:analytics-url": "node build/backfill-analytics-url.js",
     "match:retro": "node build/match-retro.js",

@@ -68,3 +68,26 @@ export async function notifyNewPost(postUrl: string, note?: string): Promise<voi
 export async function sendDiscordAlert(text: string, files: DiscordFile[] = []): Promise<void> {
   await postMessage(config.discordAlertChannelId, `⚠️ ${text}`, files);
 }
+
+// Evening heads-up in #content-upcoming: a screenshot of tomorrow's scheduled
+// post rendered in the phone preview. Unlike sendDiscordAlert, attaching an
+// image here IS the point — it's the whole reason the job exists.
+export async function notifyTomorrowPreview(
+  image: Buffer,
+  label: string,
+  note?: string,
+): Promise<void> {
+  const body = `**Tomorrow's LinkedIn post** — ${label}${note ? `\n\n${note}` : ''}`;
+  await postMessage(config.discordPreviewChannelId, body, [
+    { name: 'tomorrow-post.png', data: image },
+  ]);
+}
+
+// Same channel, but for the days with nothing queued. Sent rather than skipped
+// silently so an empty queue is never mistaken for a broken job.
+export async function notifyNothingScheduled(dayLabel: string): Promise<void> {
+  await postMessage(
+    config.discordPreviewChannelId,
+    `No LinkedIn post is scheduled for ${dayLabel}.`,
+  );
+}

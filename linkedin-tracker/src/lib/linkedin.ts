@@ -260,3 +260,117 @@ export async function getPostAnalytics(page: Page, activityId: string): Promise<
     sends: raw.sends ?? 0,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Scheduled (not yet published) posts
+// ---------------------------------------------------------------------------
+
+export interface ScheduledPost {
+  shareUrn: string;      // urn:li:share:7495...
+  scheduledAt: Date;
+  text: string;
+  imageUrl: string | null; // highest-resolution variant LinkedIn offers
+  label: string;           // LinkedIn's own wording, e.g. "Posting Wed, Aug 26 at 8:45 AM"
+}
+
+// Read the queue of scheduled posts.
+//
+// Every other LinkedIn surface in this file is reached with goto() + DOM
+// scraping, but scheduled posts have no page of their own: /feed/scheduled-posts/
+// and /feed/scheduled/ both render LinkedIn's "This page doesn't exist", and the
+// only UI is the composer modal, which does NOT open under Playwright (verified
+// with a good session, navigator.webdriver false, real and synthetic clicks
+// alike). So this calls the same internal GraphQL query the modal uses, from
+// inside the page so the session cookies and csrf token come along for free.
+export async function getScheduledPosts(page: Page, count = 10): Promise<ScheduledPost[]> {
+  // The fetch is same-origin, so we must already be on linkedin.com.
+  if (!/^https:\/\/www\.linkedin\.com\//.test(page.url())) {
+    await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  }
+  await assertLoggedIn(page);
+
+  const res = await page.evaluate(
+    async ({ queryId, count }: { queryId: string; count: number }) => {
+      const jsessionid = (document.cookie.match(/JSESSIONID=([^;]+)/) ?? [])[1] ?? '';
+      const url =
+        `/voyager/api/graphql?includeWebMetadata=true` +
+        `&variables=(shareLifeCycleState:SCHEDULED,start:0,count:${count})` +
+        `&queryId=${queryId}`;
+      const r = await fetch(url, {
+        headers: {
+          accept: 'application/vnd.linkedin.normalized+json+2.1',
+          'csrf-token': jsessionid.replace(/"/g, ''),
+          'x-restli-protocol-version': '2.0.0',
+          'x-li-lang': 'en_US',
+        },
+        credentials: 'include',
+      });
+      return { status: r.status, body: await r.text() };
+    },
+    { queryId: config.scheduledQueryId, count },
+  );
+
+  if (res.status !== 200) {
+    throw new Error(
+      `Scheduled-posts query failed (HTTP ${res.status}). The queryId is version-stamped and ` +
+      `rotates with LinkedIn's frontend — re-capture it from DevTools and set ` +
+      `LINKEDIN_SCHEDULED_QUERY_ID. Current: ${config.scheduledQueryId}`,
+    );
+  }
+
+  let json: any;
+  try {
+    json = JSON.parse(res.body);
+  } catch {
+    throw new Error('Scheduled-posts query returned a 200 that was not JSON (logged out mid-request?).');
+  }
+
+  const elements =
+    json?.data?.data?.contentcreationDashSharePreviewsByShareLifeCycleState?.elements;
+  if (!Array.isArray(elements)) {
+    throw new Error(
+      'Could not find scheduled-post elements in the GraphQL response (LinkedIn changed the ' +
+      'response shape?). Expected data.data.contentcreationDashSharePreviewsByShareLifeCycleState.elements.',
+    );
+  }
+
+  // The post body/image live in `included`, keyed by the entityUrn that each
+  // element points at via its *miniUpdate reference.
+  const included: any[] = Array.isArray(json.included) ? json.included : [];
+  const byUrn = new Map<string, any>(
+    included.filter((e) => e?.entityUrn).map((e) => [e.entityUrn as string, e]),
+  );
+
+  return elements.map((el: any) => {
+    const miniUpdate = byUrn.get(el?.['*miniUpdate']);
+    const commentary = miniUpdate?.commentary;
+    return {
+      shareUrn: miniUpdate?.metadata?.backendUrn ?? el?.['*miniUpdate'] ?? '',
+      scheduledAt: new Date(Number(el?.scheduledAt)),
+      text: commentary?.commentaryText?.text ?? '',
+      imageUrl: bestImageUrl(commentary?.image?.attributes?.[0]?.detailData?.vectorImage),
+      label: el?.contextualDescription?.text ?? '',
+    };
+  });
+}
+
+// LinkedIn returns one image as several pre-rendered sizes; take the widest so
+// the preview screenshot is sharp. Each artifact's path segment is appended to
+// the shared rootUrl.
+function bestImageUrl(vectorImage: any): string | null {
+  const root = vectorImage?.rootUrl;
+  const artifacts = vectorImage?.artifacts;
+  if (typeof root !== 'string' || !Array.isArray(artifacts) || artifacts.length === 0) return null;
+  const widest = artifacts.reduce((a: any, b: any) => ((b?.width ?? 0) > (a?.width ?? 0) ? b : a));
+  const segment = widest?.fileIdentifyingUrlPathSegment;
+  return typeof segment === 'string' ? root + segment : null;
+}
+
+// Pick the post scheduled for a given local calendar day, or null if that day is
+// empty. Compares local Y/M/D rather than a 24-hour window, so "tomorrow" means
+// the calendar day regardless of what time the job runs.
+export function findPostForDay(posts: ScheduledPost[], day: Date): ScheduledPost | null {
+  const same = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  return posts.find((p) => same(p.scheduledAt, day)) ?? null;
+}
