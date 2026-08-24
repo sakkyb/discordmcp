@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.sakky.linkedin-tomorrow-preview</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__NODE_PATH__</string>
+        <string>__TRACKER_DIR__/build/check-tomorrow-post.js</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__TRACKER_DIR__</string>
+
+    <!-- Every evening at 20:00 local time: read tomorrow's scheduled LinkedIn
+         post, render it in the portfolio-20k phone preview, and post the
+         screenshot to Discord #content-upcoming. No Weekday key = all 7 days;
+         days with nothing queued send a short "nothing scheduled" note instead. -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Hour</key><integer>20</integer><key>Minute</key><integer>0</integer></dict>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>__TRACKER_DIR__/logs/tomorrow-preview.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__TRACKER_DIR__/logs/tomorrow-preview.err.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>

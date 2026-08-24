@@ -64,6 +64,34 @@ export const config = {
   get discordMentionUserId(): string | null {
     return process.env.DISCORD_MENTION_USER_ID ?? '541101599368675329';
   },
+  // Tomorrow's-post previews go to "LinkedIn Maxxing" #content-upcoming, kept
+  // separate from #content-posted so "about to go out" never reads as "live".
+  get discordPreviewChannelId(): string {
+    return process.env.DISCORD_PREVIEW_CHANNEL_ID || '1541343781155115038'; // #content-upcoming
+  },
+  // Absolute path to the portfolio-20k repo, whose /linkedin-preview page renders
+  // the phone mock we screenshot. Served locally for a few seconds per run
+  // rather than deployed, so this is a path and not a URL.
+  get portfolio20kDir(): string {
+    return required('PORTFOLIO_20K_DIR');
+  },
+  // Port the temporary `next start` listens on. Fixed rather than random so a
+  // stale process from a killed run is easy to spot and reap.
+  get previewPort(): number {
+    return Number(process.env.PREVIEW_PORT || 4321);
+  },
+  // LinkedIn has no page or public API for scheduled posts — the composer modal
+  // is the only UI, and it does not open under automation. So we call the same
+  // internal GraphQL query the modal itself uses. The queryId is version-stamped
+  // and WILL rotate when LinkedIn ships a new frontend; when it does the call
+  // 400s and the job fails loudly. Re-capture it from DevTools (Network tab,
+  // filter "graphql", open the scheduled-posts list) and set this env var.
+  get scheduledQueryId(): string {
+    return (
+      process.env.LINKEDIN_SCHEDULED_QUERY_ID ||
+      'voyagerContentcreationDashSharePreviews.bcae3f9b4dca29d5c589c05485dad181'
+    );
+  },
   // Opt-in extra channel: if set, new posts are also sent to this WhatsApp group
   // via the macOS WhatsApp app (see lib/whatsapp-app.ts). Empty = disabled
   // (Discord remains the primary notification). The name is not used to select

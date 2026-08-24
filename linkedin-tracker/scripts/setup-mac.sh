@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Installs the LinkedIn tracker's two launchd jobs (post checker + weekly
-# engagement sync). Run once after: npm install, npm run build, and the two
-# login steps (npm run login:linkedin, npm run login:whatsapp).
+# Installs the LinkedIn tracker's three launchd jobs (post checker, weekly
+# engagement sync, and the evening tomorrow's-post preview). Run once after:
+# npm install, npm run build, and the two login steps (npm run login:linkedin,
+# npm run login:whatsapp).
 set -euo pipefail
 
 TRACKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -24,7 +25,7 @@ fi
 mkdir -p "$TRACKER_DIR/logs"
 mkdir -p "$HOME/Library/LaunchAgents"
 
-for LABEL in com.sakky.linkedin-tracker com.sakky.linkedin-engagement; do
+for LABEL in com.sakky.linkedin-tracker com.sakky.linkedin-engagement com.sakky.linkedin-tomorrow-preview; do
   PLIST_DEST="$HOME/Library/LaunchAgents/${LABEL}.plist"
   sed -e "s|__NODE_PATH__|${NODE_PATH}|g" \
       -e "s|__TRACKER_DIR__|${TRACKER_DIR}|g" \
@@ -39,9 +40,11 @@ cat <<EOF
 Done. Schedules (local time):
   Post checks:      Mon-Fri 09:00/09:30/10:00 + 18:00/18:30/19:00, Sat 10:30/11:00/11:30, Sun 17:30/18:00/18:30
   Analytics sync:   Sun, random start 1-6am (launchd fires 01:00, job waits a random <=4h)
+  Tomorrow preview: every day 20:00 (renders tomorrow's scheduled post, posts it to #content-upcoming)
 
 Useful commands:
   node build/check-new-post.js                           # run a check right now
+  DRY_RUN=true node build/check-tomorrow-post.js          # preview tomorrow's post without posting to Discord
   SKIP_START_JITTER=true node build/weekly-engagement.js  # run analytics sync now (skip the wait)
   tail -f logs/tracker.out.log              # follow checker logs
   tail -f logs/engagement.out.log           # follow engagement logs
