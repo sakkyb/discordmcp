@@ -25,7 +25,7 @@ fi
 mkdir -p "$TRACKER_DIR/logs"
 mkdir -p "$HOME/Library/LaunchAgents"
 
-for LABEL in com.sakky.linkedin-tracker com.sakky.linkedin-engagement com.sakky.linkedin-tomorrow-preview; do
+for LABEL in com.sakky.linkedin-tracker com.sakky.linkedin-engagement com.sakky.linkedin-tomorrow-preview com.sakky.linkedin-wa-selfcheck; do
   PLIST_DEST="$HOME/Library/LaunchAgents/${LABEL}.plist"
   sed -e "s|__NODE_PATH__|${NODE_PATH}|g" \
       -e "s|__TRACKER_DIR__|${TRACKER_DIR}|g" \

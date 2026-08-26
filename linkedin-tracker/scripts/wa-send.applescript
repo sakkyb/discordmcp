@@ -56,6 +56,18 @@ on run argv
 	-- activates the app would change the very state it is trying to observe.
 	if mode is "probe" then return my probeState()
 
+	-- `recover <action>` re-asserts one precondition and returns "ok", so the
+	-- caller can retry a failed send in the same run instead of waiting 30
+	-- minutes for the next launchd slot. Like `probe` it runs BEFORE the
+	-- is-running check, because launching the app is one of the remedies.
+	--
+	-- None of these actions can send anything: they activate, press Escape and
+	-- click the composer. typeAndSend is still gated by composerHasFocus().
+	if mode is "recover" then
+		if (count of argv) < 2 then error "recover mode needs an action"
+		return my recover(item 2 of argv)
+	end if
+
 	tell application "System Events"
 		if not (exists process "WhatsApp") then error "WhatsApp is not running"
 	end tell
@@ -95,6 +107,58 @@ on run argv
 	my typeAndSend(item 2 of argv)
 	return "sent"
 end run
+
+-- One remedy per recoverable cause (see lib/wa-recover.ts). Each waits for the
+-- condition it is asserting rather than sleeping a fixed amount, and errors if
+-- the condition never arrives, so a remedy that did not work is never reported
+-- as one that did.
+on recover(action)
+	if action is "launch-app" then
+		tell application "WhatsApp" to activate
+		repeat 30 times
+			delay 0.5
+			tell application "System Events"
+				if (exists process "WhatsApp") then
+					tell process "WhatsApp"
+						if (count of windows) > 0 then return "ok"
+					end tell
+				end if
+			end tell
+		end repeat
+		error "WhatsApp did not open a window within 15s of being launched"
+	end if
+
+	tell application "System Events"
+		if not (exists process "WhatsApp") then error "WhatsApp is not running"
+	end tell
+
+	if action is "activate" then
+		tell application "WhatsApp" to activate
+		repeat 20 times
+			delay 0.5
+			tell application "System Events"
+				if (name of first process whose frontmost is true) is "WhatsApp" then return "ok"
+			end tell
+		end repeat
+		error "WhatsApp did not come frontmost within 10s"
+	end if
+
+	if action is "escape-then-focus" then
+		tell application "WhatsApp" to activate
+		delay 0.8
+		-- Escape backs out of a search field, a sheet or a forwarded-message
+		-- picker — the states that leave focus on an AXGroup with a chat open.
+		tell application "System Events" to tell process "WhatsApp"
+			key code 53
+			delay 0.5
+		end tell
+		my clickComposer()
+		if my composerHasFocus() then return "ok"
+		error "the composer still does not have focus after Escape and a click"
+	end if
+
+	error "unknown recover action: " & action
+end recover
 
 -- True only when WhatsApp is FRONTMOST *and* its focused element is a text area.
 --

@@ -41,6 +41,14 @@ export const config = {
   get pythonBin(): string {
     return process.env.PYTHON_BIN || '/usr/local/bin/python3';
   },
+  // Which `claude` binary the recovery loop escalates to. Absolute by default
+  // for the same reason pythonBin is: it lives in ~/.local/bin, which is NOT on
+  // the PATH launchd hands this job. Its OAuth token lives in the macOS
+  // Keychain, so escalation is treated as best-effort throughout — a job that
+  // cannot reach it still reports the deterministic diagnosis.
+  get claudeBin(): string {
+    return process.env.CLAUDE_BIN || `${process.env.HOME}/.local/bin/claude`;
+  },
   // Optional. Used to match a live post to its planned row by content. When
   // absent the tracker falls back to date-only matching, so this deliberately
   // does NOT appear in validateConfig().
