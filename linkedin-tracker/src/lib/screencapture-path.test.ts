@@ -19,8 +19,9 @@ function sourceFiles(): string[] {
     for (const entry of fs.readdirSync(root, { recursive: true, withFileTypes: true })) {
       if (!entry.isFile()) continue;
       if (!/\.(ts|py|applescript)$/.test(entry.name)) continue;
-      // This file quotes the bad pattern in order to describe it.
-      if (entry.name === 'screencapture-path.test.ts') continue;
+      // Tests never run under launchd, so they are not subject to its PATH —
+      // and they legitimately quote the bare name to describe the trap.
+      if (entry.name.endsWith('.test.ts')) continue;
       found.push(path.join(entry.parentPath ?? root, entry.name));
     }
   }

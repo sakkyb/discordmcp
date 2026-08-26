@@ -33,3 +33,34 @@ test('duePending drops entries that are no longer fresh', () => {
   const list = [P('old', 1), P('new', 1)];
   assert.deepEqual(duePending(list, (u) => u === 'new').map((p) => p.urn), ['new']);
 });
+
+// --- self-check announcements --------------------------------------------
+// The preflight runs before every post slot. Announcing every run would make
+// #errors-sakky unreadable and train everyone to ignore it, so only CHANGES
+// are worth a message.
+import { selfCheckAnnouncement } from './state.js';
+
+test('a first-time failure is announced', () => {
+  assert.equal(selfCheckAnnouncement([], ['screencapture']), 'broke');
+});
+
+test('the same failure on the next slot is not announced again', () => {
+  assert.equal(selfCheckAnnouncement(['screencapture'], ['screencapture']), null);
+});
+
+test('a NEW failure alongside an old one is announced', () => {
+  // Otherwise a second, unrelated break hides behind the first.
+  assert.equal(selfCheckAnnouncement(['screencapture'], ['screencapture', 'display']), 'broke');
+});
+
+test('recovery is announced, so nobody chases a fault that already cleared', () => {
+  assert.equal(selfCheckAnnouncement(['screencapture'], []), 'recovered');
+});
+
+test('a run that was healthy and stays healthy says nothing', () => {
+  assert.equal(selfCheckAnnouncement([], []), null);
+});
+
+test('a fault clearing while another persists is not called recovery', () => {
+  assert.equal(selfCheckAnnouncement(['screencapture', 'display'], ['display']), null);
+});

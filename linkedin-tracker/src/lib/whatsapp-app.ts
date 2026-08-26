@@ -28,7 +28,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { PACKAGE_ROOT, config } from './config.js';
-import { parseProbe, describeProbe } from './wa-probe.js';
+import { parseProbe, describeProbe, type ProbeRecord } from './wa-probe.js';
 import type { DiscordFile } from './discord.js';
 
 const execFileAsync = promisify(execFile);
@@ -68,7 +68,17 @@ function reason(error: unknown, timeoutMs: number): string {
 //
 // Before this existed, every failure produced the same sentence and no state, so
 // five production failures in a row identified nothing.
-export async function gatherWhatsAppEvidence(): Promise<{ summary: string; files: DiscordFile[] }> {
+export interface WhatsAppEvidence {
+  summary: string;
+  files: DiscordFile[];
+  // The structured readings behind `summary`. The recovery loop decides from
+  // these; `summary` is only the human rendering of the same facts.
+  probe: ProbeRecord;
+  displays: number | null;
+  screenText: string;
+}
+
+export async function gatherWhatsAppEvidence(): Promise<WhatsAppEvidence> {
   let displays: number | null = null;
   let geometry = 'unknown';
   try {
@@ -115,7 +125,7 @@ export async function gatherWhatsAppEvidence(): Promise<{ summary: string; files
   } catch { /* no screenshot; the summary already says why */ }
   finally { try { fs.unlinkSync(shot); } catch { /* nothing to clean up */ } }
 
-  return { summary, files };
+  return { summary, files, probe, displays, screenText };
 }
 
 export async function sendViaWhatsAppApp(

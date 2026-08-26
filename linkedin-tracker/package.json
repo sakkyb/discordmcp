@@ -13,7 +13,8 @@
     "backfill:analytics-url": "node build/backfill-analytics-url.js",
     "match:retro": "node build/match-retro.js",
     "login:linkedin": "node build/login-linkedin.js",
-    "wa:test": "node build/wa-test.js"
+    "wa:test": "node build/wa-test.js",
+    "wa:selfcheck": "node build/wa-selfcheck.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

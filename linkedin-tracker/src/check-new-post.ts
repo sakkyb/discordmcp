@@ -13,7 +13,7 @@ import {
 } from './lib/notion.js';
 import { chooseRow, classifyPost } from './lib/classify.js';
 import { notifyNewPost, sendDiscordAlert, plainUrl } from './lib/discord.js';
-import { sendViaWhatsAppApp, gatherWhatsAppEvidence } from './lib/whatsapp-app.js';
+import { sendWithRecovery } from './lib/wa-loop.js';
 import { config, validateConfig } from './lib/config.js';
 
 validateConfig();
@@ -48,32 +48,45 @@ const newPosts = posts.filter(p => !state.knownUrns.includes(p.urn));
 // new-post path and the retry path so they cannot drift apart.
 async function trySendWhatsApp(urn: string, url: string): Promise<boolean> {
   if (!config.whatsappWebGroup) return true;
-  try {
-    await sendViaWhatsAppApp(`Today's post is now live: ${plainUrl(url)}`, config.whatsappWebGroup);
+
+  // sendWithRecovery does not just try once: it names the cause of a failure,
+  // re-asserts the one precondition that is wrong and sends again, all inside
+  // this run. Only what it cannot fix reaches the code below.
+  const { sent, report, files } = await sendWithRecovery(
+    `Today's post is now live: ${plainUrl(url)}`,
+    config.whatsappWebGroup,
+  );
+
+  if (sent) {
     console.log(`  → Sent to WhatsApp group "${config.whatsappWebGroup}".`);
     state.pendingWhatsApp = clearWhatsAppPending(state.pendingWhatsApp, urn);
-    return true;
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error('  → WhatsApp send failed:', msg);
-    state.pendingWhatsApp = recordWhatsAppFailure(state.pendingWhatsApp, urn, url);
-    const attempts = state.pendingWhatsApp.find((p) => p.urn === urn)?.attempts ?? 1;
-    const giveUp = attempts >= MAX_WHATSAPP_ATTEMPTS;
-    // Surface the failure in Discord so it's never silent (Discord is reliable),
-    // carrying enough state to name the cause rather than restate the symptom.
-    try {
-      const { summary, files } = await gatherWhatsAppEvidence();
-      console.error(`  → ${summary.split('\n')[0]}`);
-      await sendDiscordAlert(
-        `WhatsApp notification did NOT send for today's post (${plainUrl(url)}). ` +
-        `Attempt ${attempts}/${MAX_WHATSAPP_ATTEMPTS}${giveUp ? ' — giving up.' : ' — will retry next slot.'}\n${msg}\n\n${summary}`,
-        files,
-      );
-    } catch (alertErr) {
-      console.error('  → Discord alert also failed:', alertErr instanceof Error ? alertErr.message : alertErr);
+    // A send that needed recovery still worked, but the reason it needed it is
+    // worth knowing before the remedy stops working.
+    if (report) {
+      try {
+        await sendDiscordAlert(report);
+      } catch (alertErr) {
+        console.error('  → Discord alert failed:', alertErr instanceof Error ? alertErr.message : alertErr);
+      }
     }
-    return false;
+    return true;
   }
+
+  state.pendingWhatsApp = recordWhatsAppFailure(state.pendingWhatsApp, urn, url);
+  const attempts = state.pendingWhatsApp.find((p) => p.urn === urn)?.attempts ?? 1;
+  const giveUp = attempts >= MAX_WHATSAPP_ATTEMPTS;
+  // Surface the failure in Discord so it's never silent (Discord is reliable),
+  // carrying enough state to name the cause rather than restate the symptom.
+  try {
+    await sendDiscordAlert(
+      `WhatsApp notification did NOT send for today's post (${plainUrl(url)}). ` +
+      `Attempt ${attempts}/${MAX_WHATSAPP_ATTEMPTS}${giveUp ? ' — giving up.' : ' — will retry next slot.'}\n${report}`,
+      files,
+    );
+  } catch (alertErr) {
+    console.error('  → Discord alert also failed:', alertErr instanceof Error ? alertErr.message : alertErr);
+  }
+  return false;
 }
 
 // Retry any WhatsApp sends that failed on an earlier slot. This runs BEFORE the
