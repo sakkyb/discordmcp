@@ -36,6 +36,9 @@ const SEND_SCRIPT = path.join(PACKAGE_ROOT, 'scripts', 'wa-send.applescript');
 const OCR_SCRIPT = path.join(PACKAGE_ROOT, 'scripts', 'ocr-chat-header.py');
 const DISPLAY_SCRIPT = path.join(PACKAGE_ROOT, 'scripts', 'display-count.py');
 const OCR_SCREEN_SCRIPT = path.join(PACKAGE_ROOT, 'scripts', 'ocr-screen.py');
+// Absolute path: /usr/sbin is NOT on the PATH launchd gives this job, so a bare
+// 'screencapture' resolves from a shell but raises ENOENT under launchd.
+const SCREENCAPTURE = '/usr/sbin/screencapture';
 
 // Set WHATSAPP_SKIP_CHAT_VERIFY=true to send without the OCR check — an escape
 // hatch for a machine without the Screen Recording grant, at the cost of the
@@ -48,11 +51,16 @@ function reason(error: unknown, timeoutMs: number): string {
   // path plus the post URL and says nothing. The first production failure
   // reported exactly that and was undiagnosable.
   const e = error as { stderr?: string; code?: number; killed?: boolean };
+  // Keep the TAIL, not the head. A Python traceback puts the actual exception
+  // type and message on its LAST line, so head-truncation discarded exactly the
+  // useful part: a screencapture ENOENT was reported for two runs as
+  // "... with Popen(*popenargs, **kwargs) as proc" and nothing more.
+  const trim = (s: string, n: number) => (s.length <= n ? s : `…${s.slice(-n)}`);
   return [
-    (e.stderr ?? '').trim() || '(no stderr)',
+    trim((e.stderr ?? '').trim().replace(/\s+/g, ' '), 700) || '(no stderr)',
     e.killed ? `killed after ${timeoutMs / 1000}s timeout` : '',
     e.code != null ? `exit ${e.code}` : '',
-  ].filter(Boolean).join(' · ').replace(/\s+/g, ' ').slice(0, 600);
+  ].filter(Boolean).join(' · ');
 }
 
 // Collect everything needed to identify a send failure, at the moment it fails.
@@ -102,7 +110,7 @@ export async function gatherWhatsAppEvidence(): Promise<{ summary: string; files
   const files: DiscordFile[] = [];
   const shot = path.join(os.tmpdir(), `wa-failure-${Date.now()}.jpg`);
   try {
-    await execFileAsync('screencapture', ['-x', '-t', 'jpg', shot], { timeout: 20_000 });
+    await execFileAsync(SCREENCAPTURE, ['-x', '-t', 'jpg', shot], { timeout: 20_000 });
     files.push({ name: 'whatsapp-at-failure.jpg', data: fs.readFileSync(shot) });
   } catch { /* no screenshot; the summary already says why */ }
   finally { try { fs.unlinkSync(shot); } catch { /* nothing to clean up */ } }

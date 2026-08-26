@@ -22,6 +22,9 @@ itself failed (almost always the Screen Recording grant, which attaches to the
 """
 import subprocess
 import sys
+
+# Absolute path — /usr/sbin is not on launchd's PATH. See ocr-chat-header.py.
+SCREENCAPTURE = "/usr/sbin/screencapture"
 import tempfile
 
 import Quartz
@@ -45,7 +48,7 @@ def ocr(path: str) -> list[str]:
 def main() -> int:
     with tempfile.NamedTemporaryFile(suffix=".png", delete=True) as tmp:
         # -x silences the shutter sound; -o omits window shadows.
-        r = subprocess.run(["screencapture", "-x", "-o", tmp.name], capture_output=True)
+        r = subprocess.run([SCREENCAPTURE, "-x", "-o", tmp.name], capture_output=True)
         if r.returncode != 0:
             print(f"CAPTUREFAIL {r.stderr.decode().strip() or 'screencapture failed'}", file=sys.stderr)
             return 3
