@@ -27,7 +27,7 @@
       { "entryId": "tweet-1004", "content": { "entryType": "TimelineTimelineItem", "itemContent": { "itemType": "TimelineTweet", "tweet_results": { "result": {
         "__typename": "Tweet", "rest_id": "1004",
         "core": { "user_results": { "result": { "core": { "screen_name": "dave", "name": "Dave" } } } },
-        "legacy": { "full_text": "Small one", "favorite_count": 12000, "created_at": "Fri Sep 11 12:00:00 +0000 2026",
+        "legacy": { "full_text": "Small &amp; &lt;bold&gt; &quot;one&quot; it&#39;s", "favorite_count": 12000, "created_at": "Fri Sep 11 12:00:00 +0000 2026",
           "extended_entities": { "media": [ { "type": "photo", "url": "https://t.co/x" } ] } }
       } } } } },
       { "entryId": "cursor-bottom-1", "content": { "entryType": "TimelineTimelineCursor", "cursorType": "Bottom", "value": "scroll:abc" } }

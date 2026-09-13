@@ -26,6 +26,19 @@ export function searchUrl(query: string): string {
   return `https://x.com/search?q=${encodeURIComponent(query)}&src=typed_query&f=live`;
 }
 
+// X HTML-escapes full_text (`&amp;`, `&lt;`, `&#39;`…); captions should read
+// as the author wrote them.
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+export function decodeEntities(s: string): string {
+  return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, code: string) => {
+    if (code[0] === '#') {
+      const n = code[1].toLowerCase() === 'x' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : m;
+    }
+    return ENTITIES[code.toLowerCase()] ?? m;
+  });
+}
+
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -61,7 +74,7 @@ function toTweet(node: Obj): Tweet | null {
 
   const rawText = typeof legacy.full_text === 'string' ? legacy.full_text : '';
   // Media and quote links are t.co stubs that mean nothing in a caption.
-  const text = rawText.replace(/\s*https:\/\/t\.co\/\w+/g, '').trim();
+  const text = decodeEntities(rawText.replace(/\s*https:\/\/t\.co\/\w+/g, '')).trim();
   const created = typeof legacy.created_at === 'string' ? new Date(legacy.created_at) : new Date(NaN);
   const likes =
     typeof legacy.favorite_count === 'number' ? legacy.favorite_count : Number(legacy.favorite_count) || 0;

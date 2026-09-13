@@ -37,6 +37,9 @@ test('parseSearchResponse extracts tweets, unwraps visibility results, drops ret
   const b = tweets.find((t) => t.id === '1002')!;
   assert.equal(b.handle, 'bob');
   assert.equal(b.imageCount, 0);
+  // X HTML-escapes full_text; the caption must read as written.
+  const d = tweets.find((t) => t.id === '1004')!;
+  assert.equal(d.text, 'Small & <bold> "one" it\'s');
 });
 
 test('parseSearchResponse tolerates garbage', () => {

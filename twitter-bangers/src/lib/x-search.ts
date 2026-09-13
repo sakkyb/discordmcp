@@ -61,13 +61,16 @@ export async function collectTweets(
   await page.waitForTimeout(4000);
   assertLoggedIn(page);
 
+  // X only requests the next page when the viewport nears the end of the
+  // timeline, so jump to the bottom each time rather than nudging by a screen.
+  // A page of 20 image tweets is far taller than a few wheel ticks.
   const deadline = Date.now() + opts.timeoutMs;
   let idleScrolls = 0;
-  while (found.size < opts.maxPosts && idleScrolls < 3 && Date.now() < deadline) {
+  while (found.size < opts.maxPosts && idleScrolls < 4 && Date.now() < deadline) {
     const before = found.size;
-    await page.mouse.wheel(0, 2500);
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     // Uneven pauses read as a person scrolling, not a loop.
-    await page.waitForTimeout(1500 + Math.random() * 1500);
+    await page.waitForTimeout(2000 + Math.random() * 1500);
     await pending;
     idleScrolls = found.size > before ? 0 : idleScrolls + 1;
   }
