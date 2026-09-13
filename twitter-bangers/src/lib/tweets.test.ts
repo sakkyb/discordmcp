@@ -19,7 +19,7 @@ test('buildQuery and searchUrl', () => {
   assert.equal(q, 'min_faves:50000 filter:images since:2026-09-06');
   assert.equal(
     searchUrl(q),
-    'https://x.com/search?q=min_faves%3A50000%20filter%3Aimages%20since%3A2026-09-06&src=typed_query&f=live',
+    'https://x.com/search?q=min_faves%3A50000%20filter%3Aimages%20since%3A2026-09-06&src=typed_query',
   );
 });
 

@@ -16,7 +16,7 @@ page so they can be scanned without opening X.
 - Search runs through the X web UI in a logged-in Chrome profile (the user's
   main X account), driven by Playwright. The paid X API was rejected on cost.
 - Search scope: last 7 days, any language, `min_faves:50000 filter:images`,
-  Latest tab. Cap 100 tweets per run.
+  Top tab (X ranking). Cap 100 tweets per run.
 - Notion target: the **Content Master Table** database inside the LinkedIn page
   (`27e01c06-49d0-804c-99d3-c908aa98e26c`), whose "content ideas" view the user
   uses. It is a multi-source database, so pages are created with
@@ -59,7 +59,7 @@ launchd (Sat 05:00)  ->  build/weekly-bangers.js
 ### Data flow (one run)
 
 1. Build query: `min_faves:50000 filter:images since:<run date - 7 days>`.
-2. Open `https://x.com/search?q=<query>&src=typed_query&f=live` in the
+2. Open `https://x.com/search?q=<query>&src=typed_query` (Top tab) in the
    persistent Chrome profile. Assert logged in (a redirect to `/i/flow/login`
    or `/login` fails the run with a "run npm run login:x" hint).
 3. Listen for responses whose URL matches `/i/api/graphql/*/SearchTimeline`.

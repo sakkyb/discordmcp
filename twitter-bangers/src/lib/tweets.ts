@@ -21,9 +21,10 @@ export function buildQuery(minFaves: number, since: string): string {
   return `min_faves:${minFaves} filter:images since:${since}`;
 }
 
-// f=live is the "Latest" tab: newest first, no ranking games.
+// No f= parameter is the "Top" tab: X's own ranking of what went big, which
+// is what a bangers list should reflect. (f=live would be "Latest".)
 export function searchUrl(query: string): string {
-  return `https://x.com/search?q=${encodeURIComponent(query)}&src=typed_query&f=live`;
+  return `https://x.com/search?q=${encodeURIComponent(query)}&src=typed_query`;
 }
 
 // X HTML-escapes full_text (`&amp;`, `&lt;`, `&#39;`…); captions should read

@@ -7,9 +7,9 @@ page in the Content Master Table (the "content ideas" view).
 
 ## How it works
 
-- **Search**: Playwright opens the Latest tab of X search in a logged-in Chrome
+- **Search**: Playwright opens the Top tab of X search in a logged-in Chrome
   profile with `min_faves:50000 filter:images since:<7 days ago>` and scrolls
-  until it has 100 tweets or X stops returning results. Tweets are read from
+  until it has 100 tweets or X stops returning results (Top tab). Tweets are read from
   the `SearchTimeline` JSON the page loads, not scraped from the DOM, so like
   counts are exact and image detection is reliable. Retweets are dropped.
 - **New vs seen**: `state.json` records every tweet id any run has fetched.
