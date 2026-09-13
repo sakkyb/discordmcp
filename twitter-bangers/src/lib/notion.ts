@@ -27,6 +27,20 @@ export function pageTitle(runDate: Date): string {
   return `Twitter bangers — week of ${weekLabel(runDate)}`;
 }
 
+function isoDate(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+// Row properties for the weekly page: title plus the run date.
+export function pageProperties(runDate: Date, titleProp: string, dateProp: string): Record<string, unknown> {
+  return {
+    [titleProp]: { title: [{ type: 'text', text: { content: pageTitle(runDate) } }] },
+    [dateProp]: { date: { start: isoDate(runDate) } },
+  };
+}
+
 const para = (content: string, link?: string) => ({
   object: 'block',
   type: 'paragraph',
@@ -56,7 +70,7 @@ export async function createWeeklyPage(runDate: Date, report: Tweet[], query: st
   const blocks = buildPageBlocks(report, query);
   const page = await notionFetch('/pages', 'POST', {
     parent: { type: 'data_source_id', data_source_id: config.notionDataSourceId },
-    properties: { Name: { title: [{ type: 'text', text: { content: pageTitle(runDate) } }] } },
+    properties: pageProperties(runDate, config.notionTitleProperty, config.notionDateProperty),
     children: blocks.slice(0, BATCH),
   });
   for (let i = BATCH; i < blocks.length; i += BATCH) {

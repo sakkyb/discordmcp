@@ -3,7 +3,7 @@
 A weekly job on the Mac that finds last week's X posts with **50,000+ likes and
 at least one image**, posts up to 50 relevant posts it has not reported before to Discord
 `#twitter-weekly-bangers`, and saves the same 20 as tweet embeds on a new Notion
-page in the Content Master Table (the "content ideas" view).
+page in the Content schedule table (its "content ideas" view).
 
 ## How it works
 
@@ -53,12 +53,12 @@ The X session lives in `chrome-profile/` (its own profile, separate from the
 LinkedIn tracker's). If X logs the session out, the run fails with a hint to
 run `npm run login:x` again and posts an alert to `#errors-sakky`.
 
-### Which Notion data source?
+### Notion target
 
-The Content Master Table is a multi-source database. Pages are created under
-`NOTION_CONTENT_IDEAS_DATA_SOURCE_ID`, which defaults to its first source. If
-the weekly page does not appear in the "content ideas" view, set the variable
-to the other source (`3a301c06-49d0-8026-aca1-000bbd95c126`) in `.env`.
+Pages are rows of the "Content schedule" database, created under its data
+source (`NOTION_CONTENT_IDEAS_DATA_SOURCE_ID`, default set in code) with the
+title in `Post name` and the run date in `Date`. Override the column names
+with `NOTION_TITLE_PROPERTY` / `NOTION_DATE_PROPERTY` if the table changes.
 
 ## Settings
 

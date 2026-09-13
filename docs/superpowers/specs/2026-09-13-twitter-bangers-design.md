@@ -206,3 +206,12 @@ After the seed run the user found the raw list generic. Changes:
   is alerted. `CLASSIFY=false` skips the filter entirely.
 - Auth: `ANTHROPIC_API_KEY` in `twitter-bangers/.env`, the same key the
   Discord bot and LinkedIn tracker use.
+
+## Addendum 2026-09-13 (later): Notion target corrected
+
+The "content ideas" view is a view of the **Content schedule** database, not
+the Content Master Table. Pages are now created under Content schedule's data
+source (`27801c06-49d0-80e9-af9e-000b48703100`, the same value as the repo-root
+`NOTION_DATA_SOURCE_ID`) with the title in `Post name` and the run date in
+`Date` (both column names configurable). This week's page was copied over and
+the Discord link edited to match.

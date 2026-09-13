@@ -41,12 +41,19 @@ export const config = {
   get notionToken(): string {
     return required('NOTION_TOKEN');
   },
-  // The "Content Master Table" is a multi-source database; pages are created
-  // under a data source, not the database. Both sources were empty when this
-  // was built and the API cannot say which one the "content ideas" view shows,
-  // so this is a setting rather than a constant.
+  // The "content ideas" view lives on the "Content schedule" database (inside
+  // the LinkedIn page). Pages are created under its data source, not the
+  // database id. Same value as NOTION_DATA_SOURCE_ID in the repo-root .env.
   get notionDataSourceId(): string {
-    return process.env.NOTION_CONTENT_IDEAS_DATA_SOURCE_ID || '27e01c06-49d0-808b-b355-000b53e20a3f';
+    return process.env.NOTION_CONTENT_IDEAS_DATA_SOURCE_ID || '27801c06-49d0-80e9-af9e-000b48703100';
+  },
+  // Title column of that table ("Post name" on Content schedule).
+  get notionTitleProperty(): string {
+    return process.env.NOTION_TITLE_PROPERTY || 'Post name';
+  },
+  // Date column, filled with the run date so the row sorts with the week.
+  get notionDateProperty(): string {
+    return process.env.NOTION_DATE_PROPERTY || 'Date';
   },
   get discordChannelId(): string {
     return process.env.DISCORD_CHANNEL_ID || '1548630846737490041'; // #twitter-weekly-bangers
