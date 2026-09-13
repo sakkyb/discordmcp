@@ -31,3 +31,8 @@ linkedin-tracker/state.json
 linkedin-tracker/logs/
 linkedin-tracker/whatsapp-web-profile/
 .wwebjs_cache/
+
+# Twitter bangers runtime data (session, state, logs)
+twitter-bangers/chrome-profile/
+twitter-bangers/state.json
+twitter-bangers/logs/

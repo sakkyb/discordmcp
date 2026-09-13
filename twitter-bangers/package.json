@@ -1,0 +1,21 @@
+{
+  "name": "twitter-bangers",
+  "version": "1.0.0",
+  "description": "Weekly job: X posts with 50k+ likes and images -> Discord + Notion",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc && mkdir -p build/lib && cp -R src/lib/fixtures build/lib/",
+    "test": "npm run build && node --test \"build/**/*.test.js\"",
+    "run": "node build/weekly-bangers.js",
+    "login:x": "node build/login-x.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "playwright": "1.61.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.33",
+    "typescript": "^5.9.3"
+  }
+}
