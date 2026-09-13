@@ -27,33 +27,45 @@ function snippet(text: string): string {
 // cards live in Notion.
 function entry(i: number, t: Tweet): string {
   const s = snippet(t.text);
-  return `${i}. @${t.handle} — ${formatLikes(t.likes)} likes\n${s ? `   ${s}\n` : ''}   <${t.url}>`;
+  const tag = t.verdict ? ` · ${t.verdict.category}` : '';
+  const why = t.verdict?.reason ? `   ↳ ${t.verdict.reason}\n` : '';
+  return `${i}. @${t.handle} — ${formatLikes(t.likes)} likes${tag}\n${s ? `   ${s}\n` : ''}${why}   <${t.url}>`;
 }
 
 export interface ReportInput {
   runDate: Date;
   report: Tweet[];
-  checked: number;
+  checked: number; // tweets that met the likes+image bar
+  unseen?: number; // of those, not reported before (classifier input)
   notionUrl: string | null;
   notionError?: string;
+  classifierError?: string; // set when the list is unfiltered because Claude failed
+}
+
+function countsLine(opts: ReportInput): string {
+  const n = opts.report.length;
+  const unseen = opts.unseen ?? opts.checked;
+  if (opts.classifierError) return `${n} new posts with 50k+ likes and images, UNFILTERED (${unseen} unseen of ${opts.checked} checked).`;
+  return `${n} relevant new posts (from ${unseen} unseen of ${opts.checked} with 50k+ likes and images).`;
 }
 
 // One message in the common case; entries spill into follow-up messages only
 // when the total would pass Discord's cap. The Notion line is always last.
 export function buildReportMessages(opts: ReportInput): string[] {
   const header = `**Twitter weekly bangers — week of ${weekLabel(opts.runDate)}**`;
-  const footer = opts.notionError
-    ? `Notion save failed: ${opts.notionError}`
-    : opts.notionUrl
-      ? `Saved in Notion: <${opts.notionUrl}>`
-      : '';
+  const notes: string[] = [];
+  if (opts.classifierError) notes.push(`⚠️ Relevance filter failed, showing the unfiltered top list: ${opts.classifierError}`);
+  if (opts.notionError) notes.push(`Notion save failed: ${opts.notionError}`);
+  else if (opts.notionUrl) notes.push(`Saved in Notion: <${opts.notionUrl}>`);
+  const footer = notes.join('\n');
 
   if (opts.report.length === 0) {
-    const body = `${header}\nNo new bangers this week (${opts.checked} checked, none unseen).`;
+    const unseen = opts.unseen ?? opts.checked;
+    const body = `${header}\nNo new bangers this week (${unseen} unseen of ${opts.checked} checked, none relevant).`;
     return [footer ? `${body}\n\n${footer}` : body];
   }
 
-  const intro = `${header}\n${opts.report.length} new posts with 50k+ likes and images (of ${opts.checked} checked).\n`;
+  const intro = `${header}\n${countsLine(opts)}\n`;
   const chunks: string[] = [];
   let cur = intro;
   opts.report.forEach((t, i) => {

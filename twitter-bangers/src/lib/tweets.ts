@@ -1,3 +1,12 @@
+// Relevance judgement from the classifier (see classify.ts / rubric.md).
+export interface Verdict {
+  id: string;
+  relevant: boolean;
+  category: string;
+  score: number; // 1..5
+  reason: string;
+}
+
 export interface Tweet {
   id: string;
   url: string;
@@ -7,6 +16,8 @@ export interface Tweet {
   likes: number;
   createdAt: string; // ISO, '' when unparseable
   imageCount: number;
+  imageUrls: string[]; // pbs.twimg.com URLs of the photos, for the classifier
+  verdict?: Verdict; // set once classified
 }
 
 // Local calendar date N days before runDate, formatted for X's since: operator.
@@ -71,6 +82,9 @@ function toTweet(node: Obj): Tweet | null {
     : Array.isArray(entities.media)
       ? entities.media
       : [];
+  const imageUrls = media
+    .filter((m): m is Obj => isObj(m) && m.type === 'photo' && typeof m.media_url_https === 'string')
+    .map((m) => m.media_url_https as string);
   const imageCount = media.filter((m) => isObj(m) && m.type === 'photo').length;
 
   const rawText = typeof legacy.full_text === 'string' ? legacy.full_text : '';
@@ -89,6 +103,7 @@ function toTweet(node: Obj): Tweet | null {
     likes,
     createdAt: Number.isNaN(created.getTime()) ? '' : created.toISOString(),
     imageCount,
+    imageUrls,
   };
 }
 

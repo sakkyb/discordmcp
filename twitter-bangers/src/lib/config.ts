@@ -61,10 +61,24 @@ export const config = {
     return num('MAX_POSTS', 100);
   },
   get reportCount(): number {
-    return num('REPORT_COUNT', 20);
+    return num('REPORT_COUNT', 50);
   },
   get lookbackDays(): number {
     return num('LOOKBACK_DAYS', 7);
+  },
+  // Relevance classifier (Claude). Same key the Discord bot and LinkedIn
+  // tracker use. CLASSIFY=false skips it and reports the raw top list.
+  get anthropicApiKey(): string {
+    return required('ANTHROPIC_API_KEY');
+  },
+  get classify(): boolean {
+    return process.env.CLASSIFY !== 'false';
+  },
+  get classifierModel(): string {
+    return process.env.CLASSIFIER_MODEL || 'claude-sonnet-5';
+  },
+  get minScore(): number {
+    return num('MIN_SCORE', 3);
   },
   get headless(): boolean {
     return process.env.HEADLESS === 'true';
@@ -77,6 +91,7 @@ export const config = {
 // Fail fast on missing configuration before launching Chrome. A dry run
 // touches neither Discord nor Notion, so it needs neither token.
 export function validateConfig(): void {
+  if (config.classify) void config.anthropicApiKey;
   if (config.dryRun) return;
   void config.discordToken;
   void config.notionToken;

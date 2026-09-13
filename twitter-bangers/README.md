@@ -1,7 +1,7 @@
 # Twitter weekly bangers
 
 A weekly job on the Mac that finds last week's X posts with **50,000+ likes and
-at least one image**, posts the top 20 it has not reported before to Discord
+at least one image**, posts up to 50 relevant posts it has not reported before to Discord
 `#twitter-weekly-bangers`, and saves the same 20 as tweet embeds on a new Notion
 page in the Content Master Table (the "content ideas" view).
 
@@ -12,12 +12,18 @@ page in the Content Master Table (the "content ideas" view).
   until it has 100 tweets or X stops returning results (Top tab). Tweets are read from
   the `SearchTimeline` JSON the page loads, not scraped from the DOM, so like
   counts are exact and image detection is reliable. Retweets are dropped.
+- **Relevance filter**: the unseen tweets go to Claude (Sonnet 5 by default)
+  in batches of 10 with their first image, judged against `rubric.md`. Each
+  gets a category, a 1 to 5 score and a one-line reason; score 3+ survives
+  (`MIN_SCORE`). Edit `rubric.md` to change taste, no code needed. If the
+  classifier fails the run posts the unfiltered list with a warning, then
+  exits non-zero so `#errors-sakky` hears about it.
 - **New vs seen**: `state.json` records every tweet id any run has fetched.
   "New" means not in that file. The 7-day window overlaps week to week; the id
   set absorbs the duplicates.
 - **Notion**: one page per run, titled `Twitter bangers — week of 13 Sep 2026`,
   with a caption line and an embed block per tweet.
-- **Discord**: one compact ranked message (author, likes, first line, link) with
+- **Discord**: one compact ranked message (author, likes, category, first line, reason, link) with
   link previews suppressed, ending in "Saved in Notion". A week with nothing
   new still posts a "no new bangers" line. Failures alert `#errors-sakky`.
 - **Schedule**: launchd, Saturday 05:00 local time. The Mac must be awake.
@@ -35,8 +41,8 @@ cd twitter-bangers
 export PATH=/opt/homebrew/bin:$PATH
 npm install
 npm run build
-cp .env.example .env        # then set DISCORD_TOKEN and NOTION_TOKEN
-                            # (both can be copied from linkedin-tracker/.env)
+cp .env.example .env        # then set DISCORD_TOKEN, NOTION_TOKEN and ANTHROPIC_API_KEY
+                            # (all three can be copied from linkedin-tracker/.env)
 npm run login:x             # [HUMAN] log into X in the Chrome window that opens
 DRY_RUN=true node build/weekly-bangers.js   # prints the report, posts nothing
 node build/weekly-bangers.js                # live run
@@ -57,8 +63,9 @@ to the other source (`3a301c06-49d0-8026-aca1-000bbd95c126`) in `.env`.
 ## Settings
 
 All optional, with defaults in `src/lib/config.ts`: `MIN_FAVES` (50000),
-`MAX_POSTS` (100), `REPORT_COUNT` (20), `LOOKBACK_DAYS` (7),
-`DISCORD_CHANNEL_ID`, `DISCORD_ALERT_CHANNEL_ID`, `HEADLESS`, `DRY_RUN`.
+`MAX_POSTS` (100), `REPORT_COUNT` (50), `LOOKBACK_DAYS` (7), `MIN_SCORE` (3),
+`CLASSIFIER_MODEL` (claude-sonnet-5), `CLASSIFY` (true), `DISCORD_CHANNEL_ID`,
+`DISCORD_ALERT_CHANNEL_ID`, `HEADLESS`, `DRY_RUN`.
 
 ## Tests
 
@@ -68,7 +75,8 @@ npm test    # builds, then runs node --test on the pure modules
 
 Covers the query date maths, parsing a SearchTimeline fixture, filtering and
 ranking, the seen-set diff/merge, Discord message formatting and splitting,
-and the Notion block builder.
+the Notion block builder, and the classifier's batching, parsing and
+image-failure retry (with a fake model call).
 
 ## Operations
 

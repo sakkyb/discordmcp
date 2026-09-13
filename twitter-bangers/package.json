@@ -11,6 +11,7 @@
     "login:x": "node build/login-x.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.116.0",
     "dotenv": "^16.4.7",
     "playwright": "1.61.1"
   },

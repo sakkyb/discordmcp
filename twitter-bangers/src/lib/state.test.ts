@@ -15,6 +15,7 @@ const tw = (id: string, likes: number): Tweet => ({
   likes,
   createdAt: '',
   imageCount: 1,
+  imageUrls: [],
 });
 
 test('loadState returns empty state when the file is missing or corrupt', () => {

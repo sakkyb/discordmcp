@@ -31,12 +31,14 @@ test('parseSearchResponse extracts tweets, unwraps visibility results, drops ret
   assert.equal(a.name, 'Alice');
   assert.equal(a.likes, 81234);
   assert.equal(a.imageCount, 2);
+  assert.deepEqual(a.imageUrls, ['https://pbs.twimg.com/media/A1.jpg', 'https://pbs.twimg.com/media/A2.jpg']);
   assert.equal(a.text, 'First banger');
   assert.equal(a.url, 'https://x.com/alice/status/1001');
   assert.equal(a.createdAt, '2026-09-09T12:00:00.000Z');
   const b = tweets.find((t) => t.id === '1002')!;
   assert.equal(b.handle, 'bob');
   assert.equal(b.imageCount, 0);
+  assert.deepEqual(b.imageUrls, []);
   // X HTML-escapes full_text; the caption must read as written.
   const d = tweets.find((t) => t.id === '1004')!;
   assert.equal(d.text, 'Small & <bold> "one" it\'s');

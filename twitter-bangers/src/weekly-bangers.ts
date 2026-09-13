@@ -8,6 +8,7 @@ import { buildReportMessages } from './lib/report.js';
 import { postReport, sendAlert } from './lib/discord.js';
 import { createWeeklyPage } from './lib/notion.js';
 import { collectTweets, openBrowser } from './lib/x-search.js';
+import { anthropicCall, applyVerdicts, classifyTweets, loadRubric } from './lib/classify.js';
 import type { Collected } from './lib/x-search.js';
 
 async function main(): Promise<void> {
@@ -37,11 +38,27 @@ async function main(): Promise<void> {
   const fetched = selectTweets(raw.tweets, { minFaves: config.minFaves, maxPosts: config.maxPosts });
   const state = loadState();
   const fresh = diffNew(state, fetched);
-  const report = fresh.slice(0, config.reportCount);
-  console.log(`${fetched.length} qualify, ${fresh.length} unseen, reporting ${report.length}.`);
+  console.log(`${fetched.length} qualify, ${fresh.length} unseen.`);
+
+  // Relevance filter. A failure here must not sink the run: fall back to the
+  // unfiltered list and say so in the message.
+  let candidates = fresh;
+  let classifierError: string | undefined;
+  if (config.classify && fresh.length > 0) {
+    try {
+      const verdicts = await classifyTweets(fresh, loadRubric(), anthropicCall(config.classifierModel));
+      candidates = applyVerdicts(fresh, verdicts, config.minScore);
+      console.log(`Classifier (${config.classifierModel}): ${candidates.length} of ${fresh.length} relevant (score >= ${config.minScore}).`);
+    } catch (err) {
+      classifierError = (err as Error).message;
+      console.error(`Classifier failed: ${classifierError}`);
+    }
+  }
+  const report = candidates.slice(0, config.reportCount);
+  console.log(`Reporting ${report.length}.`);
 
   if (config.dryRun) {
-    const msgs = buildReportMessages({ runDate, report, checked: fetched.length, notionUrl: '(dry run)' });
+    const msgs = buildReportMessages({ runDate, report, checked: fetched.length, unseen: fresh.length, notionUrl: '(dry run)', classifierError });
     for (const m of msgs) console.log(`\n${m}`);
     console.log('\nDRY_RUN: nothing posted, nothing saved.');
     return;
@@ -61,10 +78,11 @@ async function main(): Promise<void> {
 
   // Discord first, state second: a run that dies before posting is retried
   // next time without losing tweets; one that posted never repeats them.
-  await postReport(buildReportMessages({ runDate, report, checked: fetched.length, notionUrl, notionError }));
+  await postReport(buildReportMessages({ runDate, report, checked: fetched.length, unseen: fresh.length, notionUrl, notionError, classifierError }));
   saveState(mergeSeen(state, fetched, today));
   console.log('Posted to Discord and saved state.');
   if (notionError) throw new Error(`Notion save failed: ${notionError}`);
+  if (classifierError) throw new Error(`Relevance filter failed (list was posted unfiltered): ${classifierError}`);
 }
 
 main().catch(async (err: Error) => {

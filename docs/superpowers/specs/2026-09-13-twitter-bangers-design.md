@@ -182,3 +182,27 @@ from a real SearchTimeline response with text trimmed:
   format.
 
 Integration: the seed run today, `DRY_RUN=true` first, then live.
+
+## Addendum 2026-09-13: relevance filter and Top tab
+
+After the seed run the user found the raw list generic. Changes:
+
+- **Top tab** instead of Latest (no `f=live`): X's own ranking of the week.
+- **Relevance filter.** Unseen tweets go to Claude (`claude-sonnet-5` by default,
+  `CLASSIFIER_MODEL`) in batches of 10, each with text, author, likes and its
+  first image (`pbs.twimg.com/...?name=small`). The system prompt is
+  `twitter-bangers/rubric.md`, a plain-English description of what the user
+  posts (Everyday UX, AI at work, work culture, LinkedIn classics,
+  communication) and what to drop. Structured JSON output: per tweet a
+  category, a 1 to 5 score (enum; the API rejects `minimum`/`maximum` on
+  integers) and a one-line reason. Score >= `MIN_SCORE` (3) survives; relevant
+  tweets are ranked by likes. Haiku 4.5 was tried first; the user judged its
+  picks poor and chose Sonnet 5.
+- **Report cap raised to 50** (`REPORT_COUNT`), so a week rarely truncates.
+- Discord entries and Notion captions carry the category and the reason line.
+- Failure handling: a batch that fails with images is retried text-only; if
+  the classifier fails outright the run posts the unfiltered list with a
+  warning line, still saves state, then exits non-zero so `#errors-sakky`
+  is alerted. `CLASSIFY=false` skips the filter entirely.
+- Auth: `ANTHROPIC_API_KEY` in `twitter-bangers/.env`, the same key the
+  Discord bot and LinkedIn tracker use.

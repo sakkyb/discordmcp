@@ -6,7 +6,7 @@
         "core": { "user_results": { "result": { "__typename": "User", "core": { "screen_name": "alice", "name": "Alice" }, "legacy": { "screen_name": "alice", "name": "Alice" } } } },
         "legacy": { "full_text": "First banger https://t.co/abc", "favorite_count": 81234, "created_at": "Wed Sep 09 12:00:00 +0000 2026",
           "entities": { "media": [ { "type": "photo", "url": "https://t.co/abc" } ] },
-          "extended_entities": { "media": [ { "type": "photo", "url": "https://t.co/abc" }, { "type": "photo", "url": "https://t.co/abc" } ] } }
+          "extended_entities": { "media": [ { "type": "photo", "url": "https://t.co/abc", "media_url_https": "https://pbs.twimg.com/media/A1.jpg" }, { "type": "photo", "url": "https://t.co/abc", "media_url_https": "https://pbs.twimg.com/media/A2.jpg" } ] } }
       } } } } },
       { "entryId": "tweet-1002", "content": { "entryType": "TimelineTimelineItem", "itemContent": { "itemType": "TimelineTweet", "tweet_results": { "result": {
         "__typename": "TweetWithVisibilityResults", "tweet": {
@@ -28,7 +28,7 @@
         "__typename": "Tweet", "rest_id": "1004",
         "core": { "user_results": { "result": { "core": { "screen_name": "dave", "name": "Dave" } } } },
         "legacy": { "full_text": "Small &amp; &lt;bold&gt; &quot;one&quot; it&#39;s", "favorite_count": 12000, "created_at": "Fri Sep 11 12:00:00 +0000 2026",
-          "extended_entities": { "media": [ { "type": "photo", "url": "https://t.co/x" } ] } }
+          "extended_entities": { "media": [ { "type": "photo", "url": "https://t.co/x", "media_url_https": "https://pbs.twimg.com/media/D1.png" } ] } }
       } } } } },
       { "entryId": "cursor-bottom-1", "content": { "entryType": "TimelineTimelineCursor", "cursorType": "Bottom", "value": "scroll:abc" } }
     ] }

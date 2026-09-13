@@ -40,7 +40,9 @@ export function buildPageBlocks(report: Tweet[], query: string): unknown[] {
     para(`${report.length} posts with 50k+ likes and images from the last 7 days. Search: ${query}`),
   ];
   report.forEach((t, i) => {
-    blocks.push(para(`${i + 1}. @${t.handle} · ${formatLikes(t.likes)} likes`, t.url));
+    const tag = t.verdict ? ` · ${t.verdict.category}` : '';
+    blocks.push(para(`${i + 1}. @${t.handle} · ${formatLikes(t.likes)} likes${tag}`, t.url));
+    if (t.verdict?.reason) blocks.push(para(`↳ ${t.verdict.reason}`));
     blocks.push({ object: 'block', type: 'embed', embed: { url: t.url } });
   });
   return blocks;

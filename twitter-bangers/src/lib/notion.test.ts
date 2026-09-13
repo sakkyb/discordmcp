@@ -12,6 +12,7 @@ const tw: Tweet = {
   likes: 81_234,
   createdAt: '',
   imageCount: 1,
+  imageUrls: [],
 };
 
 test('pageTitle', () => {
@@ -32,4 +33,13 @@ test('buildPageBlocks: intro paragraph then a caption + embed per tweet', () => 
   assert.equal(blocks[2].type, 'embed');
   assert.equal(blocks[2].embed.url, 'https://x.com/a/status/1');
   assert.equal(blocks[4].embed.url, 'https://x.com/b/status/2');
+});
+
+test('buildPageBlocks adds category to the caption and a reason line when classified', () => {
+  const t = { ...tw, verdict: { id: '1', relevant: true, category: 'AI at work', score: 4, reason: 'AI cameras at tills' } };
+  const blocks = buildPageBlocks([t], 'q') as any[];
+  assert.equal(blocks.length, 1 + 3);
+  assert.equal(blocks[1].paragraph.rich_text[0].text.content, '1. @a · 81.2K likes · AI at work');
+  assert.equal(blocks[2].paragraph.rich_text[0].text.content, '↳ AI cameras at tills');
+  assert.equal(blocks[3].type, 'embed');
 });
