@@ -31,3 +31,7 @@ linkedin-tracker/state.json
 linkedin-tracker/logs/
 linkedin-tracker/whatsapp-web-profile/
 .wwebjs_cache/
+
+# Court watch runtime data (state, logs)
+court-watch/state.json
+court-watch/logs/
