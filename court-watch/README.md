@@ -25,8 +25,11 @@ within the 7-day booking window.
   window. A slot is announced when it is free now and was not free at the
   previous check. Booked-then-cancelled slots are announced again, since that
   is news. The first run announces everything currently free.
-- **Notification**: one per venue per run, only when something is new.
-  Touching free sessions on a court are merged for display. Tapping it opens
+- **Minimum length**: touching free sessions on a court are merged, and only
+  blocks of at least `MIN_SLOT_MINUTES` (60) that contain something new are
+  reported. A lone 30-minute gap is ignored; a 30-minute gap opening next to
+  an already free 30 minutes reports the full hour.
+- **Notification**: one per venue per run, only when something is new. Tapping it opens
   the booking page on the first date; up to three buttons open the first
   three dates.
 
@@ -70,8 +73,8 @@ topic name can read it, so keep it random. The web app at
 
 All optional, with defaults in `src/lib/config.ts`: `NTFY_SERVER`
 (`https://ntfy.sh`), `EVENING_START` (`17:00`), `ACTIVE_HOURS`
-(`07:00-23:00`), `HORIZON_DAYS` (`7`), `VENUES` (all three, comma-separated
-segments), `DRY_RUN`.
+(`07:00-23:00`), `HORIZON_DAYS` (`7`), `MIN_SLOT_MINUTES` (`60`), `VENUES`
+(all three, comma-separated segments), `DRY_RUN`.
 
 ## Tests
 

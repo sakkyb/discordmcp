@@ -1,6 +1,6 @@
 import { bookingPageUrl } from './clubspark.js';
 import type { Venue } from './config.js';
-import { mergeAdjacent, type Range, type Slot } from './slots.js';
+import type { Range } from './slots.js';
 
 // ntfy caps a message at 4,096 bytes; £ and – are multi-byte, so clip well under.
 export const BODY_MAX = 3500;
@@ -54,9 +54,9 @@ function describe(r: Range): string {
 }
 
 // One notification per venue: ranges grouped by date, first date clickable,
-// up to three date buttons.
-export function buildNotification(venue: Venue, newSlots: Slot[]): Notification {
-  const ranges = mergeAdjacent(newSlots);
+// up to three date buttons. Null when there is nothing to say.
+export function buildNotification(venue: Venue, ranges: Range[]): Notification | null {
+  if (ranges.length === 0) return null;
   const byDate = new Map<string, Range[]>();
   for (const r of ranges) {
     const g = byDate.get(r.date);

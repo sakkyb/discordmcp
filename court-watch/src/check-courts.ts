@@ -4,7 +4,7 @@
 
 import { config, validateConfig, TIME_ZONE } from './lib/config.js';
 import { fetchVenueSessions } from './lib/clubspark.js';
-import { parseSlots, inWindow, diffNew } from './lib/slots.js';
+import { parseSlots, inWindow, diffNew, reportableRanges } from './lib/slots.js';
 import { loadState, saveState, replaceVenueSnapshot, shouldAlert } from './lib/state.js';
 import { buildNotification, type Notification } from './lib/report.js';
 import { publish, alert } from './lib/ntfy.js';
@@ -34,8 +34,12 @@ async function main(): Promise<void> {
         inWindow(s, { eveningStart: config.eveningStart, now: local }),
       );
       const fresh = diffNew(slots, state.free);
-      console.log(`${stamp} ${venue.name}: ${slots.length} free in window, ${fresh.length} new`);
-      if (fresh.length) toSend.push(buildNotification(venue, fresh));
+      const ranges = reportableRanges(slots, fresh, config.minSlotMinutes);
+      console.log(
+        `${stamp} ${venue.name}: ${slots.length} free in window, ${fresh.length} new, ${ranges.length} to report`,
+      );
+      const n = buildNotification(venue, ranges);
+      if (n) toSend.push(n);
       next = replaceVenueSnapshot(next, venue.segment, slots);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

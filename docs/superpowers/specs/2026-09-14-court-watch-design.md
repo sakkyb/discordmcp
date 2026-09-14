@@ -198,3 +198,14 @@ responses captured on 2026-09-14 (`src/lib/fixtures/*.json`, dates
 
 Integration: `DRY_RUN=true` against the live API, then a live seed run that
 should produce one notification per venue on the user's phone.
+
+## Addendum 2026-09-14: minimum slot length
+
+After the seed run the user asked to exclude slots shorter than an hour.
+The diff still runs on raw sessions, but what gets reported is
+`reportableRanges(current, fresh, MIN_SLOT_MINUTES)`: merge **all** current
+free slots per court, keep ranges of at least `MIN_SLOT_MINUTES` (default
+60) that contain at least one newly free session. So a lone 30-minute gap
+is dropped, and a 30-minute gap opening next to an already free 30 minutes
+reports the full hour. A range that grows is reported again, which is
+acceptable. `buildNotification` takes ranges and returns null when empty.

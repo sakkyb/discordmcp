@@ -87,6 +87,10 @@ export const config = {
   get horizonDays(): number {
     return num('HORIZON_DAYS', 7);
   },
+  // Contiguous free time shorter than this is not worth a notification.
+  get minSlotMinutes(): number {
+    return num('MIN_SLOT_MINUTES', 60);
+  },
   get venues(): Venue[] {
     const raw = process.env.VENUES;
     if (!raw) return ALL_VENUES;
@@ -112,6 +116,7 @@ export function validateConfig(): void {
   void config.eveningStart;
   void config.activeHours;
   void config.horizonDays;
+  void config.minSlotMinutes;
   void config.venues;
   if (!config.dryRun) void config.ntfyTopic;
 }

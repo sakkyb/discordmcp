@@ -75,6 +75,7 @@ export interface Range {
   start: number;
   end: number;
   cost: number;
+  keys: string[]; // slotKey of every raw session inside the range
 }
 
 const byCourt = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
@@ -97,13 +98,24 @@ export function mergeAdjacent(slots: Slot[]): Range[] {
       if (cur && cur.end === s.start) {
         cur.end = s.end;
         cur.cost = round2(cur.cost + s.cost);
+        cur.keys.push(slotKey(s));
       } else {
-        cur = { date: s.date, court: s.court, lit: s.lit, start: s.start, end: s.end, cost: s.cost };
+        cur = { date: s.date, court: s.court, lit: s.lit, start: s.start, end: s.end, cost: s.cost, keys: [slotKey(s)] };
         ranges.push(cur);
       }
     }
   }
   return ranges.sort((a, b) => a.date.localeCompare(b.date) || byCourt(a.court, b.court) || a.start - b.start);
+}
+
+// The ranges worth announcing: contiguous free time of at least minMinutes
+// on one court that contains at least one newly free session. Built from
+// ALL current free slots, so a 30-minute gap opening next to an already
+// free 30 minutes reports the full hour, while a lone 30-minute gap is
+// dropped.
+export function reportableRanges(current: Slot[], fresh: Slot[], minMinutes: number): Range[] {
+  const freshKeys = new Set(fresh.map(slotKey));
+  return mergeAdjacent(current).filter((r) => r.end - r.start >= minMinutes && r.keys.some((k) => freshKeys.has(k)));
 }
 
 function round2(n: number): number {

@@ -2,7 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import type { VenueSessionsResponse } from './clubspark.js';
-import { parseSlots, inWindow, diffNew, mergeAdjacent, slotKey, isWeekend, type Slot } from './slots.js';
+import {
+  parseSlots,
+  inWindow,
+  diffNew,
+  mergeAdjacent,
+  reportableRanges,
+  slotKey,
+  isWeekend,
+  type Slot,
+} from './slots.js';
 
 const fixture = (name: string): VenueSessionsResponse =>
   JSON.parse(fs.readFileSync(new URL(`./fixtures/${name}-2026-09-19-20.json`, import.meta.url), 'utf-8'));
@@ -106,6 +115,39 @@ test('mergeAdjacent joins touching sessions on one court, sums cost, sorts natur
       ['Crt 2', 19 * 60 + 30, 20 * 60, 5.2],
       ['Crt 10', 18 * 60, 18 * 60 + 30, 5.2],
     ],
+  );
+});
+
+test('mergeAdjacent records the raw session keys inside each range', () => {
+  const a = at('2026-09-19', 18, 30);
+  const b = { ...at('2026-09-19', 18, 30), start: 18 * 60 + 30, end: 19 * 60 };
+  const [r] = mergeAdjacent([a, b]);
+  assert.deepEqual(r.keys, [slotKey(a), slotKey(b)]);
+});
+
+test('reportableRanges: drops contiguous free time under the minimum', () => {
+  const lone = at('2026-09-19', 18, 30);
+  assert.deepEqual(reportableRanges([lone], [lone], 60), []);
+  const hour = at('2026-09-19', 19, 60);
+  assert.equal(reportableRanges([lone, hour], [lone, hour], 60).length, 1);
+});
+
+test('reportableRanges: a new 30 min next to an already free 30 min reports the full hour', () => {
+  const old = at('2026-09-19', 18, 30);
+  const fresh = { ...old, start: 18 * 60 + 30, end: 19 * 60 };
+  const ranges = reportableRanges([old, fresh], [fresh], 60);
+  assert.equal(ranges.length, 1);
+  assert.equal(ranges[0].start, 18 * 60);
+  assert.equal(ranges[0].end, 19 * 60);
+});
+
+test('reportableRanges: ranges with nothing new are not reported', () => {
+  const old = at('2026-09-19', 18, 60);
+  const fresh = at('2026-09-20', 10, 60);
+  const ranges = reportableRanges([old, fresh], [fresh], 60);
+  assert.deepEqual(
+    ranges.map((r) => r.date),
+    ['2026-09-20'],
   );
 });
 
