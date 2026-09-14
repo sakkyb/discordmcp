@@ -98,6 +98,11 @@ export const config = {
   get minSlotMinutes(): number {
     return num('MIN_SLOT_MINUTES', 60);
   },
+  // Unlit courts (Burgess Park "Crt 7 (No lights)") are useless after dark,
+  // which is when most of the window falls, so they are out by default.
+  get includeUnlit(): boolean {
+    return process.env.INCLUDE_UNLIT === 'true';
+  },
   get venues(): Venue[] {
     const raw = process.env.VENUES;
     if (!raw) return ALL_VENUES;

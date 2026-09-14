@@ -7,7 +7,7 @@ within the 7-day booking window.
 
 | Venue | ClubSpark segment | Courts |
 |---|---|---|
-| Burgess Park | `BurgessParkSouthwark` | Crt 1–7 (7 unlit), 30-min slots |
+| Burgess Park | `BurgessParkSouthwark` | Crt 1–6 (Crt 7 is unlit and skipped), 30-min slots |
 | Kennington Park | `kenningtonpark` | Court 1–5 (cricket nets ignored), 60-min slots |
 | Geraldine Mary Harmsworth | `GeraldineMaryHarmsworth` | Court 1–2, 30-min slots |
 
@@ -34,6 +34,9 @@ within the 7-day booking window.
   window. A slot is announced when it is free now and was not free at the
   previous check. Booked-then-cancelled slots are announced again, since that
   is news. The first run announces everything currently free.
+- **Lit courts only**: unlit courts are skipped (`INCLUDE_UNLIT=true` to
+  keep them). Burgess Park "Crt 7 (No lights)" is the only one at these
+  venues.
 - **Minimum length**: touching free sessions on a court are merged, and only
   blocks of at least `MIN_SLOT_MINUTES` (60) that contain something new are
   reported. A lone 30-minute gap is ignored; a 30-minute gap opening next to
@@ -83,8 +86,8 @@ topic name can read it, so keep it random. The web app at
 All optional, with defaults in `src/lib/config.ts`: `NTFY_SERVER`
 (`https://ntfy.sh`), `EVENING_START` (`17:00`), `ACTIVE_HOURS`
 (`07:00-23:00`), `HORIZON_DAYS` (`7`), `RELEASE_TIME` (`20:00`),
-`MIN_SLOT_MINUTES` (`60`), `VENUES` (all three, comma-separated segments),
-`DRY_RUN`.
+`MIN_SLOT_MINUTES` (`60`), `INCLUDE_UNLIT` (`false`), `VENUES` (all three,
+comma-separated segments), `DRY_RUN`.
 
 ## Tests
 
