@@ -199,6 +199,31 @@ responses captured on 2026-09-14 (`src/lib/fixtures/*.json`, dates
 Integration: `DRY_RUN=true` against the live API, then a live seed run that
 should produce one notification per venue on the user's phone.
 
+## Addendum 2026-09-14: category semantics were inverted
+
+The seed run announced blocks the booking page shows as "Booked". Comparing
+the page with the API for Geraldine Mary Harmsworth on 15 Sep: cells the
+page renders with a price (`£3.80`) are **category 0** sessions named after
+the pricing scheme (`Tennis Change 2026 - 2027`, `Default`, a GUID) with
+`CourtCost` set; cells the page renders as "Booked" are **category 1000
+"Booking"**. So category 0 = available, 1000 = booked, the reverse of the
+research findings above. `parseSlots` now keeps category 0 sessions with
+`CourtCost > 0` (a bookable cell always shows a price). An available
+session is a block (e.g. 09:00–11:00, `Interval` 30) bookable in
+`Interval`-minute units at `CourtCost` each; `parseSlots` splits it into
+those units so a block shrinking never looks like new availability.
+Fixture expectations: Kennington weekend has 1 available unit, Burgess 30
+blocks = 127 units, GMH 0.
+
+Under the corrected reading, days beyond the booking window look entirely
+free (no bookings exist yet). The page greys them out with the rule in
+`comp-booking.js`: a day is bookable when `0 <= ahead <= AdvancedBookingPeriod`,
+and when `ahead == AdvancedBookingPeriod` only from
+`NewDayBookingAvailabilityTime` (minutes) on the current day. Both come from
+`/v0/VenueBooking/<segment>/GetSettings`: Guest role period 7 and release
+time 1200 (20:00) at all three venues. `inWindow` applies this with
+`HORIZON_DAYS` / `RELEASE_TIME` (defaults 7 / 20:00).
+
 ## Addendum 2026-09-14: minimum slot length
 
 After the seed run the user asked to exclude slots shorter than an hour.

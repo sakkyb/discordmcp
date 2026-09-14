@@ -5,7 +5,7 @@ import { request, type RequestLike } from './http.js';
 
 export interface RawSession {
   ID: string;
-  Category: number; // 1000 = bookable, 0 = booked, 2000 coaching, 4000 club, 7000 maintenance, 8000 closed
+  Category: number; // 0 = available (priced scheme cell), 1000 = booked, 2000 coaching, 4000 club, 7000 maintenance, 8000 closed
   SubCategory: number;
   Name: string;
   StartTime: number; // minutes since midnight

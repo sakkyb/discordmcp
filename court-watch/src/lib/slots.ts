@@ -1,7 +1,13 @@
 import type { VenueSessionsResponse } from './clubspark.js';
-import type { LocalNow } from './time.js';
+import { daysBetween, type LocalNow } from './time.js';
 
-export const BOOKABLE_SESSION = 1000;
+// Verified against the booking page on 2026-09-14: a category-0 session
+// carries the pricing scheme's name ("Tennis Change 2026 - 2027", "Default",
+// a GUID) and a price, and the page renders it as a bookable cell showing
+// that price. Category 1000 "Booking" is an existing booking (the page shows
+// "Booked"). The names are misleading the other way round.
+export const AVAILABLE_SESSION = 0;
+export const BOOKED_SESSION = 1000;
 export const TENNIS_COURT = 1;
 
 export interface Slot {
@@ -19,8 +25,13 @@ export function slotKey(s: Slot): string {
   return `${s.venue}|${s.date}|${s.resourceId}|${s.start}|${s.end}`;
 }
 
-// One Slot per free session on a tennis court. Every other session category
-// (booked, coaching, closed, unknown) is ignored, never treated as free.
+// One Slot per bookable unit on a tennis court. An available session is a
+// block (e.g. 09:00–11:00) bookable in `Interval`-minute units, each at
+// `CourtCost`; it is split into those units so that a block shrinking when
+// someone books part of it never looks like new availability. Every other
+// session category (booked, coaching, closed, unknown) is ignored, never
+// treated as free. Unpriced sessions are skipped too: a real bookable cell
+// always shows a price on the page.
 export function parseSlots(venue: string, data: VenueSessionsResponse): Slot[] {
   const slots: Slot[] = [];
   for (const r of data.Resources) {
@@ -28,17 +39,21 @@ export function parseSlots(venue: string, data: VenueSessionsResponse): Slot[] {
     for (const day of r.Days ?? []) {
       const date = day.Date.slice(0, 10);
       for (const s of day.Sessions ?? []) {
-        if (s.Category !== BOOKABLE_SESSION) continue;
-        slots.push({
-          venue,
-          date,
-          resourceId: r.ID,
-          court: r.Name,
-          lit: r.Lighting === 1,
-          start: s.StartTime,
-          end: s.EndTime,
-          cost: s.CourtCost,
-        });
+        if (s.Category !== AVAILABLE_SESSION || !(s.CourtCost > 0)) continue;
+        const length = s.EndTime - s.StartTime;
+        const unit = s.Interval > 0 && s.Interval <= length ? s.Interval : length;
+        for (let start = s.StartTime; start + unit <= s.EndTime; start += unit) {
+          slots.push({
+            venue,
+            date,
+            resourceId: r.ID,
+            court: r.Name,
+            lit: r.Lighting === 1,
+            start,
+            end: start + unit,
+            cost: s.CourtCost,
+          });
+        }
       }
     }
   }
@@ -54,12 +69,22 @@ export function isWeekend(date: string): boolean {
 export interface WindowOptions {
   eveningStart: number; // minutes since midnight, weekdays only
   now: LocalNow;
+  // ClubSpark's booking rule (GetSettings: AdvancedBookingPeriod and
+  // NewDayBookingAvailabilityTime): a day is bookable up to horizonDays
+  // ahead, and day+horizonDays only from releaseMinutes on the release day.
+  // The sessions API still returns priced cells for later days; the page
+  // greys them out with exactly this rule.
+  horizonDays: number;
+  releaseMinutes: number;
 }
 
-// Weekends all day, weekdays from eveningStart; nothing already started.
-export function inWindow(slot: Slot, { eveningStart, now }: WindowOptions): boolean {
-  if (slot.date < now.date) return false;
-  if (slot.date === now.date && slot.start <= now.minutes) return false;
+// Bookable now (within the booking window), on a weekend or a weekday from
+// eveningStart, and not already started.
+export function inWindow(slot: Slot, { eveningStart, now, horizonDays, releaseMinutes }: WindowOptions): boolean {
+  const ahead = daysBetween(now.date, slot.date);
+  if (ahead < 0 || ahead > horizonDays) return false;
+  if (ahead === horizonDays && now.minutes < releaseMinutes) return false;
+  if (ahead === 0 && slot.start <= now.minutes) return false;
   return isWeekend(slot.date) || slot.start >= eveningStart;
 }
 

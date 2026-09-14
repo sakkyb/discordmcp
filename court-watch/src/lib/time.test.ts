@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { localNow, addDays, inActiveHours, parseHm } from './time.js';
+import { localNow, addDays, daysBetween, inActiveHours, parseHm } from './time.js';
+
+test('daysBetween counts whole days either way', () => {
+  assert.equal(daysBetween('2026-09-14', '2026-09-21'), 7);
+  assert.equal(daysBetween('2026-09-14', '2026-09-14'), 0);
+  assert.equal(daysBetween('2026-09-14', '2026-09-13'), -1);
+  assert.equal(daysBetween('2026-10-25', '2026-10-26'), 1); // DST end
+});
 
 test('localNow renders date and minutes in the given zone', () => {
   // 2026-09-14T22:30Z is 23:30 BST

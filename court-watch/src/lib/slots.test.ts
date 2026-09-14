@@ -20,35 +20,78 @@ const kennington = fixture('kennington');
 const burgess = fixture('burgess');
 const gmh = fixture('gmh');
 
-test('parseSlots: Kennington yields only tennis courts and category-1000 sessions', () => {
+test('parseSlots: Kennington yields only the priced category-0 (available) sessions on tennis courts', () => {
   const slots = parseSlots('kenningtonpark', kennington);
-  assert.deepEqual(
-    [...new Set(slots.map((s) => s.court))].sort(),
-    ['Court 1', 'Court 2', 'Court 3', 'Court 4', 'Court 5'],
-  );
-  // 38 one-hour + 13 two-hour "Booking" sessions in the capture
-  assert.equal(slots.length, 51);
-  const first = slots.find((s) => s.court === 'Court 1' && s.date === '2026-09-19');
-  assert.ok(first);
-  assert.equal(first.venue, 'kenningtonpark');
-  assert.equal(first.start, 480);
-  assert.equal(first.end, 540);
-  assert.equal(first.cost, 8);
-  assert.equal(first.lit, true);
-  assert.equal(first.resourceId, '48d10536-b799-4e21-868c-da7fb3fe43e0');
-  // Booked (category 0) and closed (8000) sessions never appear
-  assert.ok(!slots.some((s) => s.court === 'Court 1' && s.date === '2026-09-19' && s.start === 19 * 60));
+  // The capture (a busy weekend) has exactly one available cell: Court 4,
+  // Sunday 08:00, scheme "Default", £8. Everything labelled "Booking"
+  // (category 1000) is an existing booking and must not appear.
+  assert.equal(slots.length, 1);
+  const [only] = slots;
+  assert.equal(only.venue, 'kenningtonpark');
+  assert.equal(only.court, 'Court 4');
+  assert.equal(only.date, '2026-09-20');
+  assert.equal(only.start, 480);
+  assert.equal(only.end, 540);
+  assert.equal(only.cost, 8);
+  assert.equal(only.lit, true);
+  assert.equal(only.resourceId, '48ce242f-d10d-43d7-ad21-92009296bd20');
+  // Court 1 Saturday is "Booking" 08:00 in the capture: booked, so absent.
+  assert.ok(!slots.some((s) => s.court === 'Court 1'));
+  // Cricket nets are never included even when they have category-0 sessions.
+  assert.ok(!slots.some((s) => s.court.startsWith('Cricket')));
 });
 
-test('parseSlots: Burgess court 7 is unlit; GMH has 30-minute slots', () => {
+test('parseSlots: Burgess has 30 available blocks = 127 half-hour units, court 7 unlit; GMH weekend is fully booked', () => {
   const b = parseSlots('BurgessParkSouthwark', burgess);
-  const seven = b.find((s) => s.court.startsWith('Crt 7'));
-  assert.ok(seven);
-  assert.equal(seven.lit, false);
-  assert.equal(b.length, 12 + 1 + 9 + 2 + 9 + 55);
-  const g = parseSlots('GeraldineMaryHarmsworth', gmh);
-  assert.ok(g.some((s) => s.end - s.start === 30));
-  assert.equal(g.length, 4 + 2 + 6 + 34);
+  assert.equal(b.length, 127);
+  // Block Crt 1 Sat 18:30–22:00 (interval 30) becomes seven consecutive units
+  const late = b.filter((s) => s.court === 'Crt 1' && s.date === '2026-09-19' && s.start >= 1110).map((s) => [s.start, s.end]);
+  assert.deepEqual(late, [
+    [1110, 1140],
+    [1140, 1170],
+    [1170, 1200],
+    [1200, 1230],
+    [1230, 1260],
+    [1260, 1290],
+    [1290, 1320],
+  ]);
+  assert.ok(b.every((s) => s.end - s.start === 30 && s.cost > 0));
+  const first = b.find((s) => s.court === 'Crt 1' && s.date === '2026-09-19');
+  assert.ok(first);
+  assert.equal(first.start, 720);
+  assert.equal(first.cost, 5.2);
+  assert.ok(b.some((s) => s.court.startsWith('Crt 7') && !s.lit));
+  // Every session in the GMH capture is a booking or coaching: nothing free.
+  assert.equal(parseSlots('GeraldineMaryHarmsworth', gmh).length, 0);
+});
+
+test('parseSlots: unpriced category-0 sessions are skipped', () => {
+  const data = {
+    TimeZone: 'Europe/London',
+    Resources: [
+      {
+        ID: 'r1',
+        ResourceGroupID: 'g',
+        Name: 'Court 1',
+        Category: 1,
+        Lighting: 1,
+        Days: [
+          {
+            Date: '2026-09-19T00:00:00',
+            Sessions: [
+              { ID: 'a', Category: 0, SubCategory: 0, Name: 'Default', StartTime: 480, EndTime: 540, Interval: 60, CourtCost: 0 },
+              { ID: 'b', Category: 0, SubCategory: 0, Name: 'Default', StartTime: 540, EndTime: 600, Interval: 60, CourtCost: 8 },
+              { ID: 'c', Category: 1000, SubCategory: 0, Name: 'Booking', StartTime: 600, EndTime: 660, Interval: 60, CourtCost: 8 },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  assert.deepEqual(
+    parseSlots('v', data).map((s) => s.start),
+    [540],
+  );
 });
 
 test('isWeekend', () => {
@@ -71,8 +114,10 @@ const at = (date: string, startH: number, len = 60): Slot => ({
   end: startH * 60 + len,
 });
 
+const rule = { horizonDays: 7, releaseMinutes: 20 * 60 };
+
 test('inWindow: weekends all day, weekdays from eveningStart, past slots dropped', () => {
-  const opts = { eveningStart: 17 * 60, now: { date: '2026-09-14', minutes: 12 * 60 } }; // Monday noon
+  const opts = { ...rule, eveningStart: 17 * 60, now: { date: '2026-09-14', minutes: 12 * 60 } }; // Monday noon
   assert.ok(inWindow(at('2026-09-19', 8), opts)); // Sat morning
   assert.ok(inWindow(at('2026-09-20', 14), opts)); // Sun afternoon
   assert.ok(!inWindow(at('2026-09-15', 16), opts)); // Tue 16:00
@@ -81,6 +126,15 @@ test('inWindow: weekends all day, weekdays from eveningStart, past slots dropped
   assert.ok(!inWindow(at('2026-09-14', 11), opts)); // already started
   assert.ok(!inWindow(at('2026-09-14', 12), opts)); // starting right now
   assert.ok(!inWindow(at('2026-09-13', 18), opts)); // yesterday
+});
+
+test('inWindow: day+7 opens at the release time, day+8 never', () => {
+  const before = { ...rule, eveningStart: 17 * 60, now: { date: '2026-09-14', minutes: 13 * 60 } };
+  const after = { ...rule, eveningStart: 17 * 60, now: { date: '2026-09-14', minutes: 20 * 60 } };
+  assert.ok(inWindow(at('2026-09-20', 18), before)); // day+6 always
+  assert.ok(!inWindow(at('2026-09-21', 18), before)); // day+7 before 20:00
+  assert.ok(inWindow(at('2026-09-21', 18), after)); // day+7 from 20:00
+  assert.ok(!inWindow(at('2026-09-22', 18), after)); // day+8 never
 });
 
 test('diffNew returns slots whose key is absent from the previous snapshot', () => {

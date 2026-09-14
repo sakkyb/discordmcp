@@ -16,11 +16,20 @@ within the 7-day booking window.
 - **Fetch**: one unauthenticated GET per venue to the JSON endpoint the
   BookByDate page uses (`/v0/VenueBooking/<segment>/GetVenueSessions`),
   covering today to today + 7. No browser, no login.
-- **Free** means a session with category `1000` ("Booking") on a resource of
-  category `1` (tennis court). Booked (`0`), coaching (`2000`), club (`4000`),
-  maintenance (`7000`) and closed (`8000`) sessions are ignored.
+- **Free** means a session with category `0` and a price on a resource of
+  category `1` (tennis court). Category `0` sessions carry the pricing
+  scheme's name ("Tennis Change 2026 - 2027", "Default", a GUID) and the
+  booking page renders them as a bookable cell showing the price. Category
+  `1000` "Booking" is an existing booking (the page shows "Booked"), which
+  is the opposite of what the name suggests. Coaching (`2000`), club
+  (`4000`), maintenance (`7000`), closed (`8000`) and unpriced sessions are
+  ignored.
 - **Window**: Saturday and Sunday all day; Monday to Friday from
-  `EVENING_START`. Slots that have already started are dropped.
+  `EVENING_START`. Slots that have already started are dropped. Only days
+  a guest can actually book count: up to `HORIZON_DAYS` (7) ahead, and the
+  furthest day only from `RELEASE_TIME` (20:00) the day it comes into range.
+  The sessions API returns priced cells beyond that; the booking page greys
+  them out using the same rule (from `GetSettings`).
 - **New vs seen**: `state.json` holds the last snapshot of free slots in the
   window. A slot is announced when it is free now and was not free at the
   previous check. Booked-then-cancelled slots are announced again, since that
@@ -73,8 +82,9 @@ topic name can read it, so keep it random. The web app at
 
 All optional, with defaults in `src/lib/config.ts`: `NTFY_SERVER`
 (`https://ntfy.sh`), `EVENING_START` (`17:00`), `ACTIVE_HOURS`
-(`07:00-23:00`), `HORIZON_DAYS` (`7`), `MIN_SLOT_MINUTES` (`60`), `VENUES`
-(all three, comma-separated segments), `DRY_RUN`.
+(`07:00-23:00`), `HORIZON_DAYS` (`7`), `RELEASE_TIME` (`20:00`),
+`MIN_SLOT_MINUTES` (`60`), `VENUES` (all three, comma-separated segments),
+`DRY_RUN`.
 
 ## Tests
 

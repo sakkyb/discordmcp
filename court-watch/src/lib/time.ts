@@ -29,6 +29,15 @@ export function addDays(date: string, n: number): string {
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
 
+// Whole days from `from` to `to` (YYYY-MM-DD); negative when `to` is earlier.
+export function daysBetween(from: string, to: string): number {
+  const utc = (date: string) => {
+    const [y, m, d] = date.split('-').map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  return Math.round((utc(to) - utc(from)) / 86_400_000);
+}
+
 // "17:00" -> 1020
 export function parseHm(s: string): number {
   const m = /^(\d{1,2}):(\d{2})$/.exec(s.trim());

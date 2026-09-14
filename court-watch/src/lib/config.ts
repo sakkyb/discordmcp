@@ -84,8 +84,15 @@ export const config = {
   get activeHours(): [number, number] {
     return hours('ACTIVE_HOURS', '07:00-23:00');
   },
+  // ClubSpark's Guest role books up to this many days ahead
+  // (GetSettings.Roles[].AdvancedBookingPeriod, 7 at all three venues) ...
   get horizonDays(): number {
     return num('HORIZON_DAYS', 7);
+  },
+  // ... and the furthest day opens at this time the day it comes into range
+  // (GetSettings.NewDayBookingAvailabilityTime, 1200 = 20:00 at all three).
+  get releaseTime(): number {
+    return hm('RELEASE_TIME', '20:00');
   },
   // Contiguous free time shorter than this is not worth a notification.
   get minSlotMinutes(): number {
@@ -116,6 +123,7 @@ export function validateConfig(): void {
   void config.eveningStart;
   void config.activeHours;
   void config.horizonDays;
+  void config.releaseTime;
   void config.minSlotMinutes;
   void config.venues;
   if (!config.dryRun) void config.ntfyTopic;

@@ -31,7 +31,12 @@ async function main(): Promise<void> {
     try {
       const data = await fetchVenueSessions(venue.segment, local.date, endDate);
       const slots = parseSlots(venue.segment, data).filter((s) =>
-        inWindow(s, { eveningStart: config.eveningStart, now: local }),
+        inWindow(s, {
+          eveningStart: config.eveningStart,
+          now: local,
+          horizonDays: config.horizonDays,
+          releaseMinutes: config.releaseTime,
+        }),
       );
       const fresh = diffNew(slots, state.free);
       const ranges = reportableRanges(slots, fresh, config.minSlotMinutes);
