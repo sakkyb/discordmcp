@@ -36,3 +36,7 @@ linkedin-tracker/whatsapp-web-profile/
 twitter-bangers/chrome-profile/
 twitter-bangers/state.json
 twitter-bangers/logs/
+
+# Court watch runtime data (state, logs)
+court-watch/state.json
+court-watch/logs/
