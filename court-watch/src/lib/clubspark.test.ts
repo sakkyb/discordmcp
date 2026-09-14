@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sessionsUrl, bookingPageUrl, fetchVenueSessions, type FetchLike } from './clubspark.js';
+import { sessionsUrl, bookingPageUrl, fetchVenueSessions } from './clubspark.js';
+import type { RequestLike } from './http.js';
 
 test('sessionsUrl targets the venue booking API with the date range', () => {
   const url = sessionsUrl('kenningtonpark', '2026-09-14', '2026-09-21', 123);
@@ -17,18 +18,30 @@ test('bookingPageUrl opens BookByDate on the given day as a guest', () => {
   );
 });
 
-const fake = (status: number, body: unknown): FetchLike => async () =>
-  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+const fake = (status: number, text: string): RequestLike => async () => ({ status, text });
 
 test('fetchVenueSessions rejects on non-2xx', async () => {
-  await assert.rejects(fetchVenueSessions('x', '2026-09-14', '2026-09-21', fake(503, {})), /responded 503/);
+  await assert.rejects(fetchVenueSessions('x', '2026-09-14', '2026-09-21', fake(503, '')), /responded 503/);
+});
+
+test('fetchVenueSessions rejects on non-JSON (e.g. a bot challenge page)', async () => {
+  await assert.rejects(fetchVenueSessions('x', '2026-09-14', '2026-09-21', fake(200, '<html>')), /not JSON/);
 });
 
 test('fetchVenueSessions rejects when Resources is missing', async () => {
-  await assert.rejects(fetchVenueSessions('x', '2026-09-14', '2026-09-21', fake(200, { TimeZone: 'Europe/London' })), /no Resources/);
+  await assert.rejects(
+    fetchVenueSessions('x', '2026-09-14', '2026-09-21', fake(200, JSON.stringify({ TimeZone: 'Europe/London' }))),
+    /no Resources/,
+  );
 });
 
-test('fetchVenueSessions returns the parsed body', async () => {
+test('fetchVenueSessions returns the parsed body and sends an identifying UA', async () => {
   const body = { TimeZone: 'Europe/London', Resources: [] };
-  assert.deepEqual(await fetchVenueSessions('x', '2026-09-14', '2026-09-21', fake(200, body)), body);
+  let seen: Record<string, string> | undefined;
+  const req: RequestLike = async (_url, opts) => {
+    seen = opts?.headers;
+    return { status: 200, text: JSON.stringify(body) };
+  };
+  assert.deepEqual(await fetchVenueSessions('x', '2026-09-14', '2026-09-21', req), body);
+  assert.match(seen?.['User-Agent'] ?? '', /court-watch/);
 });

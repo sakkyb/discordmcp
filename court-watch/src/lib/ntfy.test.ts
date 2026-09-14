@@ -1,26 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { publish, alert } from './ntfy.js';
-import type { FetchLike } from './clubspark.js';
+import type { RequestLike, RequestOptions } from './http.js';
 
 interface Captured {
   url: string;
-  init?: RequestInit;
+  opts?: RequestOptions;
 }
 
-const capture = (status = 200): { calls: Captured[]; fetchFn: FetchLike } => {
+const capture = (status = 200): { calls: Captured[]; requestFn: RequestLike } => {
   const calls: Captured[] = [];
-  const fetchFn: FetchLike = async (url, init) => {
-    calls.push({ url, init });
-    return new Response(status === 200 ? '{}' : 'nope', { status });
+  const requestFn: RequestLike = async (url, opts) => {
+    calls.push({ url, opts });
+    return { status, text: status === 200 ? '{}' : 'nope' };
   };
-  return { calls, fetchFn };
+  return { calls, requestFn };
 };
 
 const target = { server: 'https://ntfy.example', topic: 'courts-abc' };
 
 test('publish POSTs one JSON message to the server root', async () => {
-  const { calls, fetchFn } = capture();
+  const { calls, requestFn } = capture();
   await publish(
     {
       title: 'Kennington Park: 2 new slots',
@@ -30,12 +30,13 @@ test('publish POSTs one JSON message to the server root', async () => {
       tags: ['tennis'],
     },
     target,
-    fetchFn,
+    requestFn,
   );
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'https://ntfy.example/');
-  assert.equal(calls[0].init?.method, 'POST');
-  assert.deepEqual(JSON.parse(String(calls[0].init?.body)), {
+  assert.equal(calls[0].opts?.method, 'POST');
+  assert.equal(calls[0].opts?.headers?.['Content-Type'], 'application/json');
+  assert.deepEqual(JSON.parse(String(calls[0].opts?.body)), {
     topic: 'courts-abc',
     title: 'Kennington Park: 2 new slots',
     message: 'Sat 19 Sep — Court 1 09:00–10:00 £8',
@@ -46,17 +47,17 @@ test('publish POSTs one JSON message to the server root', async () => {
 });
 
 test('publish rejects on a non-2xx response', async () => {
-  const { fetchFn } = capture(429);
+  const { requestFn } = capture(429);
   await assert.rejects(
-    publish({ title: 't', body: 'b', click: '', actions: [], tags: [] }, target, fetchFn),
+    publish({ title: 't', body: 'b', click: '', actions: [], tags: [] }, target, requestFn),
     /ntfy publish failed \(429\): nope/,
   );
 });
 
 test('alert is a high-priority warning with no click or actions', async () => {
-  const { calls, fetchFn } = capture();
-  await alert('Kennington Park: responded 503', target, fetchFn);
-  const body = JSON.parse(String(calls[0].init?.body));
+  const { calls, requestFn } = capture();
+  await alert('Kennington Park: responded 503', target, requestFn);
+  const body = JSON.parse(String(calls[0].opts?.body));
   assert.equal(body.title, 'court-watch failed');
   assert.equal(body.priority, 4);
   assert.deepEqual(body.tags, ['warning']);

@@ -36,6 +36,11 @@ Venues (ClubSpark URL segments):
   `7000` maintenance; `8000` closed. Only `1000` counts as available.
 - Booking horizon is 7 days at all three (day 8 returns no `1000` sessions).
   The LTA page for Burgess Park says the new day is released at 20:00 daily.
+- ClubSpark is behind Cloudflare. Node's global `fetch` (undici) gets the
+  "Just a moment" challenge (403) on every request; node's `https` module
+  and curl with a plain identifying User-Agent get 200. So the job uses a
+  small `https`-based `request()` helper (`lib/http.ts`) for both ClubSpark
+  and ntfy, with an honest `court-watch/1.0` User-Agent.
 
 ## Constraints and decisions
 

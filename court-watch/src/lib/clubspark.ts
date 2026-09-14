@@ -1,3 +1,5 @@
+import { request, type RequestLike } from './http.js';
+
 // The JSON the BookByDate page loads. No login needed for any of the three
 // venues (checked 2026-09-14).
 
@@ -43,19 +45,22 @@ export function bookingPageUrl(segment: string, date: string): string {
   return `${BASE}/${segment}/Booking/BookByDate#?date=${date}&role=guest`;
 }
 
-export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
-
 export async function fetchVenueSessions(
   segment: string,
   startDate: string,
   endDate: string,
-  fetchFn: FetchLike = fetch,
+  requestFn: RequestLike = request,
 ): Promise<VenueSessionsResponse> {
-  const res = await fetchFn(sessionsUrl(segment, startDate, endDate), {
+  const res = await requestFn(sessionsUrl(segment, startDate, endDate), {
     headers: { Accept: 'application/json', 'User-Agent': 'court-watch/1.0 (personal availability check)' },
   });
-  if (!res.ok) throw new Error(`ClubSpark ${segment} responded ${res.status}`);
-  const json = (await res.json()) as Partial<VenueSessionsResponse>;
+  if (res.status < 200 || res.status >= 300) throw new Error(`ClubSpark ${segment} responded ${res.status}`);
+  let json: Partial<VenueSessionsResponse>;
+  try {
+    json = JSON.parse(res.text);
+  } catch {
+    throw new Error(`Unexpected response for ${segment}: not JSON`);
+  }
   if (!json || !Array.isArray(json.Resources)) {
     throw new Error(`Unexpected response for ${segment}: no Resources`);
   }
