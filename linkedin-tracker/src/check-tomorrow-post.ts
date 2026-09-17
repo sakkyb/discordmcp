@@ -1,19 +1,19 @@
 // Scheduled job: every evening, show what is going out tomorrow.
 //
-// Reads tomorrow's scheduled (unpublished) post from LinkedIn, renders it in the
-// portfolio-20k /linkedin-preview phone mock, and posts a screenshot to Discord
-// #content-upcoming. This is the "does it actually look right" check the night
-// before, rather than the morning of.
+// Reads tomorrow's scheduled (unpublished) posts from LinkedIn, renders each one
+// in the portfolio-20k /linkedin-preview phone mock, and posts one screenshot
+// per post to Discord #content-upcoming, in posting order. This is the "does it
+// actually look right" check the night before, rather than the morning of.
 //
 // Runs at the time defined in scripts/com.sakky.linkedin-tomorrow-preview.plist.template.
 // Safe to re-run: it only reads from LinkedIn and posts to Discord, so a repeat
-// run just re-sends the same preview.
+// run just re-sends the same previews.
 import { spawn, type ChildProcess } from 'child_process';
-import { chromium } from 'playwright';
+import { chromium, type Page } from 'playwright';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { openBrowser, getScheduledPosts, findPostForDay, type ScheduledPost } from './lib/linkedin.js';
+import { openBrowser, getScheduledPosts, findPostsForDay, type ScheduledPost } from './lib/linkedin.js';
 import { notifyTomorrowPreview, notifyNothingScheduled } from './lib/discord.js';
 import { sendDiscordAlert } from './lib/discord.js';
 import { config } from './lib/config.js';
@@ -47,41 +47,48 @@ if (DRY_RUN) console.log('DRY RUN — no Discord messages will be sent.');
 // ---------------------------------------------------------------------------
 // 1. Read the scheduled queue from LinkedIn
 // ---------------------------------------------------------------------------
-let scheduled: ScheduledPost[];
+// A post plus its downloaded image (if it has one), so everything the preview
+// needs is in hand before the LinkedIn browser closes.
+interface Queued { post: ScheduledPost; imageBytes: Buffer | null }
+
+let queued: Queued[] = [];
 const browser = await openBrowser();
-let imageBytes: Buffer | null = null;
-let post: ScheduledPost | null = null;
 try {
   const page = browser.pages()[0] ?? await browser.newPage();
-  scheduled = await getScheduledPosts(page, 10);
+  const scheduled = await getScheduledPosts(page, 10);
   console.log(`Found ${scheduled.length} scheduled post(s):`);
   for (const s of scheduled) console.log(`  - ${s.label || s.scheduledAt.toISOString()}`);
 
-  post = findPostForDay(scheduled, day);
+  const posts = findPostsForDay(scheduled, day);
 
-  // Download the image while the authenticated context is still open: the CDN
+  // Download the images while the authenticated context is still open: the CDN
   // URLs are signed and expire, so fetching later (or from another browser) can
   // 403. Playwright's request context shares the session cookies.
-  if (post?.imageUrl) {
-    const res = await page.context().request.get(post.imageUrl, { timeout: 60_000 });
-    if (!res.ok()) throw new Error(`Could not download the post image (HTTP ${res.status()}).`);
-    imageBytes = await res.body();
-    console.log(`  → Downloaded image (${Math.round(imageBytes.length / 1024)} KB).`);
+  for (const post of posts) {
+    let imageBytes: Buffer | null = null;
+    if (post.imageUrl) {
+      const res = await page.context().request.get(post.imageUrl, { timeout: 60_000 });
+      if (!res.ok()) throw new Error(`Could not download the image for "${post.label}" (HTTP ${res.status()}).`);
+      imageBytes = await res.body();
+      console.log(`  → Downloaded image for "${post.label}" (${Math.round(imageBytes.length / 1024)} KB).`);
+    }
+    queued.push({ post, imageBytes });
   }
 } finally {
   await browser.close();
 }
 
-if (!post) {
+if (queued.length === 0) {
   console.log(`Nothing scheduled for ${dayLabel}.`);
   if (!DRY_RUN) await notifyNothingScheduled(dayLabel);
   process.exit(0);
 }
 
-console.log(`Previewing: ${post.label}`);
+console.log(`${queued.length} post(s) to preview for ${dayLabel}:`);
+for (const { post } of queued) console.log(`  - ${post.label}`);
 
 // ---------------------------------------------------------------------------
-// 2. Serve portfolio-20k locally, just long enough to render the preview
+// 2. Serve portfolio-20k locally, just long enough to render the previews
 // ---------------------------------------------------------------------------
 const PORT = config.previewPort;
 const BASE = `http://localhost:${PORT}`;
@@ -93,8 +100,52 @@ const mode = hasBuild ? 'start' : 'dev';
 console.log(`Starting portfolio-20k (next ${mode}) on ${BASE}...`);
 
 let server: ChildProcess | null = null;
-let tmpImagePath: string | null = null;
-let screenshot: Buffer | null = null;
+const tmpImagePaths: string[] = [];
+// Screenshots in the same order as `queued`, so the Discord messages go out in
+// posting order (morning slot first).
+const screenshots: Buffer[] = [];
+
+// Render one post in the phone mock and capture it. The page is reloaded for
+// each post so no text or image carries over from the previous one.
+async function capturePost(page: Page, { post, imageBytes }: Queued): Promise<Buffer> {
+  await page.goto(`${BASE}/linkedin-preview`, { waitUntil: 'networkidle', timeout: 60_000 });
+
+  await page.fill('#post-text', post.text);
+
+  if (imageBytes) {
+    // setInputFiles needs a real path, and the page reads the file client-side.
+    const tmpImagePath = path.join(os.tmpdir(), `linkedin-tomorrow-${Date.now()}-${tmpImagePaths.length}.png`);
+    tmpImagePaths.push(tmpImagePath);
+    fs.writeFileSync(tmpImagePath, imageBytes);
+    await page.setInputFiles('input[type="file"]', tmpImagePath);
+    // The editor measures the image to set its aspect ratio before the feed
+    // renders it, so wait for it to actually appear in the phone.
+    await page.waitForSelector('[data-testid="phone-preview"] img', { timeout: 30_000 });
+  }
+
+  // Scroll the previewed post to the top of the phone's feed. Without this it
+  // renders below an example post and the image gets cut off by the frame —
+  // the screenshot has to lead with tomorrow's post, not someone else's.
+  await page.evaluate(() => {
+    const live = document.querySelector('[data-testid="live-post"]') as HTMLElement | null;
+    const feed = live?.parentElement;
+    if (live && feed) feed.scrollTop = live.offsetTop - feed.offsetTop;
+  });
+
+  // Let fonts/layout settle so the screenshot isn't caught mid-reflow.
+  await page.waitForTimeout(1_500);
+
+  const phone = page.locator('[data-testid="phone-preview"]');
+  if (await phone.count() === 0) {
+    throw new Error(
+      'Could not find [data-testid="phone-preview"] on the preview page. If portfolio-20k ' +
+      'was changed, re-add that attribute to components/linkedin-preview/PhonePreview.tsx.',
+    );
+  }
+  const shot = await phone.screenshot({ timeout: 30_000 });
+  console.log(`  → Captured "${post.label}" (${Math.round(shot.length / 1024)} KB).`);
+  return shot;
+}
 
 try {
   // Run the Next CLI with the same node binary that is running this script,
@@ -135,7 +186,7 @@ try {
   console.log('  → Preview app is up.');
 
   // ---------------------------------------------------------------------------
-  // 3. Fill the preview and screenshot the phone
+  // 3. Fill the preview and screenshot the phone, once per post
   // ---------------------------------------------------------------------------
   // A plain browser, not the LinkedIn profile: this only touches localhost, and
   // keeping the logged-in profile out of it avoids any chance of disturbing it.
@@ -144,46 +195,12 @@ try {
   const previewBrowser = await chromium.launch({ channel: 'chrome', headless: true });
   try {
     const page = await previewBrowser.newPage({ viewport: { width: 1400, height: 1000 } });
-    await page.goto(`${BASE}/linkedin-preview`, { waitUntil: 'networkidle', timeout: 60_000 });
-
-    await page.fill('#post-text', post.text);
-
-    if (imageBytes) {
-      // setInputFiles needs a real path, and the page reads the file client-side.
-      tmpImagePath = path.join(os.tmpdir(), `linkedin-tomorrow-${Date.now()}.png`);
-      fs.writeFileSync(tmpImagePath, imageBytes);
-      await page.setInputFiles('input[type="file"]', tmpImagePath);
-      // The editor measures the image to set its aspect ratio before the feed
-      // renders it, so wait for it to actually appear in the phone.
-      await page.waitForSelector('[data-testid="phone-preview"] img', { timeout: 30_000 });
-    }
-
-    // Scroll the previewed post to the top of the phone's feed. Without this it
-    // renders below an example post and the image gets cut off by the frame —
-    // the screenshot has to lead with tomorrow's post, not someone else's.
-    await page.evaluate(() => {
-      const live = document.querySelector('[data-testid="live-post"]') as HTMLElement | null;
-      const feed = live?.parentElement;
-      if (live && feed) feed.scrollTop = live.offsetTop - feed.offsetTop;
-    });
-
-    // Let fonts/layout settle so the screenshot isn't caught mid-reflow.
-    await page.waitForTimeout(1_500);
-
-    const phone = page.locator('[data-testid="phone-preview"]');
-    if (await phone.count() === 0) {
-      throw new Error(
-        'Could not find [data-testid="phone-preview"] on the preview page. If portfolio-20k ' +
-        'was changed, re-add that attribute to components/linkedin-preview/PhonePreview.tsx.',
-      );
-    }
-    screenshot = await phone.screenshot({ timeout: 30_000 });
-    console.log(`  → Captured preview (${Math.round(screenshot.length / 1024)} KB).`);
+    for (const item of queued) screenshots.push(await capturePost(page, item));
   } finally {
     await previewBrowser.close();
   }
 } finally {
-  // Always reap the server and the temp file, so a failed run leaves nothing
+  // Always reap the server and the temp files, so a failed run leaves nothing
   // holding the port or sitting in /tmp.
   if (server && !server.killed) {
     server.kill('SIGTERM');
@@ -191,32 +208,48 @@ try {
     if (!server.killed) server.kill('SIGKILL');
     console.log('  → Stopped the preview server.');
   }
-  if (tmpImagePath && fs.existsSync(tmpImagePath)) fs.unlinkSync(tmpImagePath);
+  for (const p of tmpImagePaths) if (fs.existsSync(p)) fs.unlinkSync(p);
 }
 
 // ---------------------------------------------------------------------------
-// 4. Announce in Discord
+// 4. Announce in Discord — one message per post, in posting order
 // ---------------------------------------------------------------------------
-if (!screenshot) throw new Error('No screenshot was produced.');
+if (screenshots.length !== queued.length) {
+  throw new Error(`Expected ${queued.length} screenshot(s) but produced ${screenshots.length}.`);
+}
 
-if (DRY_RUN) {
-  const out = path.join(os.tmpdir(), 'tomorrow-post-preview.png');
-  fs.writeFileSync(out, screenshot);
-  console.log(`(dry run) Skipped Discord. Screenshot written to ${out}`);
-} else {
+const total = queued.length;
+for (let i = 0; i < total; i++) {
+  const { post, imageBytes } = queued[i];
+  const screenshot = screenshots[i];
+  const n = i + 1;
+
+  if (DRY_RUN) {
+    const out = path.join(os.tmpdir(), total > 1 ? `tomorrow-post-preview-${n}.png` : 'tomorrow-post-preview.png');
+    fs.writeFileSync(out, screenshot);
+    console.log(`(dry run) Skipped Discord for post ${n} of ${total}. Screenshot written to ${out}`);
+    continue;
+  }
+
   try {
     await notifyTomorrowPreview(
       screenshot,
       post.label || `Posting ${dayLabel}`,
+      n,
+      total,
       imageBytes ? undefined : '(This post has no image.)',
     );
-    console.log('  → Posted to Discord #content-upcoming.');
+    console.log(`  → Posted ${n} of ${total} to Discord #content-upcoming.`);
   } catch (error) {
+    // One failed send must not swallow the rest: keep going so the other
+    // previews still land, and report the miss at the end via the exit code.
     const msg = error instanceof Error ? error.message : String(error);
-    console.error('  → Discord post failed:', msg);
+    console.error(`  → Discord post ${n} of ${total} failed:`, msg);
     // Never fail silently: the whole point is the evening heads-up.
     try {
-      await sendDiscordAlert(`Tomorrow's-post preview could not be posted to #content-upcoming.\n${msg}`);
+      await sendDiscordAlert(
+        `Tomorrow's-post preview ${n} of ${total} ("${post.label}") could not be posted to #content-upcoming.\n${msg}`,
+      );
     } catch { /* alert channel unreachable too — the log is all that's left */ }
     process.exitCode = 1;
   }

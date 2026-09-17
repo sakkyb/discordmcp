@@ -366,11 +366,15 @@ function bestImageUrl(vectorImage: any): string | null {
   return typeof segment === 'string' ? root + segment : null;
 }
 
-// Pick the post scheduled for a given local calendar day, or null if that day is
-// empty. Compares local Y/M/D rather than a 24-hour window, so "tomorrow" means
-// the calendar day regardless of what time the job runs.
-export function findPostForDay(posts: ScheduledPost[], day: Date): ScheduledPost | null {
+// Every post scheduled for a given local calendar day, earliest first, or an
+// empty list if that day is empty. Compares local Y/M/D rather than a 24-hour
+// window, so "tomorrow" means the calendar day regardless of what time the job
+// runs. Several posts can share a day (a morning and an afternoon slot, say),
+// so this never picks just one.
+export function findPostsForDay(posts: ScheduledPost[], day: Date): ScheduledPost[] {
   const same = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-  return posts.find((p) => same(p.scheduledAt, day)) ?? null;
+  return posts
+    .filter((p) => same(p.scheduledAt, day))
+    .sort((a, b) => a.scheduledAt.getTime() - b.scheduledAt.getTime());
 }
