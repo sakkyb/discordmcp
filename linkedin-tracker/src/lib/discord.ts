@@ -69,17 +69,23 @@ export async function sendDiscordAlert(text: string, files: DiscordFile[] = []):
   await postMessage(config.discordAlertChannelId, `⚠️ ${text}`, files);
 }
 
-// Evening heads-up in #content-upcoming: a screenshot of tomorrow's scheduled
-// post rendered in the phone preview. Unlike sendDiscordAlert, attaching an
-// image here IS the point — it's the whole reason the job exists.
+// Evening heads-up in #content-upcoming: a screenshot of one of tomorrow's
+// scheduled posts rendered in the phone preview. Unlike sendDiscordAlert,
+// attaching an image here IS the point — it's the whole reason the job exists.
+//
+// One message per post: when several are queued for the same day, `index` and
+// `total` number them ("post 2 of 3") so the thread reads in posting order.
 export async function notifyTomorrowPreview(
   image: Buffer,
   label: string,
+  index: number,
+  total: number,
   note?: string,
 ): Promise<void> {
-  const body = `**Tomorrow's LinkedIn post** — ${label}${note ? `\n\n${note}` : ''}`;
+  const heading = total > 1 ? `**Tomorrow's LinkedIn post ${index} of ${total}**` : `**Tomorrow's LinkedIn post**`;
+  const body = `${heading} — ${label}${note ? `\n\n${note}` : ''}`;
   await postMessage(config.discordPreviewChannelId, body, [
-    { name: 'tomorrow-post.png', data: image },
+    { name: total > 1 ? `tomorrow-post-${index}.png` : 'tomorrow-post.png', data: image },
   ]);
 }
 

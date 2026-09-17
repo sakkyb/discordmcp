@@ -15,8 +15,8 @@
     <string>__TRACKER_DIR__</string>
 
     <!-- Every evening at 20:00 local time: read tomorrow's scheduled LinkedIn
-         post, render it in the portfolio-20k phone preview, and post the
-         screenshot to Discord #content-upcoming. No Weekday key = all 7 days;
+         posts, render each in the portfolio-20k phone preview, and post one
+         screenshot per post to Discord #content-upcoming. No Weekday key = all 7 days;
          days with nothing queued send a short "nothing scheduled" note instead. -->
     <key>StartCalendarInterval</key>
     <array>
