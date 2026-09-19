@@ -27,8 +27,10 @@ text: many of these posts are image-only.
 - Politics, war, disasters, crime.
 - Cute animals, personal drama, relationships, food, travel photos with no
   product or work angle.
-- Posts whose point needs a language other than English AND whose image does
-  not carry the idea on its own.
+- Anything not in English: score 1 if the text, or the words in the image,
+  are in another language, even when the idea is clear. The posts get
+  rewritten for an English-speaking audience, so this is a hard rule with no
+  image exception.
 - Generic motivation with no specific insight.
 
 ## Scoring

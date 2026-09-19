@@ -8,10 +8,12 @@ page in the Content schedule table (its "content ideas" view).
 ## How it works
 
 - **Search**: Playwright opens the Top tab of X search in a logged-in Chrome
-  profile with `min_faves:50000 filter:images since:<7 days ago>` and scrolls
-  until it has 100 tweets or X stops returning results (Top tab). Tweets are read from
-  the `SearchTimeline` JSON the page loads, not scraped from the DOM, so like
-  counts are exact and image detection is reliable. Retweets are dropped.
+  profile with `min_faves:50000 filter:images lang:en since:<7 days ago>` and
+  scrolls until it has 100 tweets or X stops returning results (Top tab). Tweets
+  are read from the `SearchTimeline` JSON the page loads, not scraped from the
+  DOM, so like counts are exact and image detection is reliable. Retweets are
+  dropped, and so is any tweet X itself tags as a language other than English
+  (image-only posts with no language tag are kept).
 - **Relevance filter**: the unseen tweets go to Claude (Sonnet 5 by default)
   in batches of 10 with their first image, judged against `rubric.md`. Each
   gets a category, a 1 to 5 score and a one-line reason; score 3+ survives
@@ -57,8 +59,10 @@ run `npm run login:x` again and posts an alert to `#errors-sakky`.
 
 Pages are rows of the "Content schedule" database, created under its data
 source (`NOTION_CONTENT_IDEAS_DATA_SOURCE_ID`, default set in code) with the
-title in `Post name` and the run date in `Date`. Override the column names
-with `NOTION_TITLE_PROPERTY` / `NOTION_DATE_PROPERTY` if the table changes.
+title in `Post name`, the run date in `Date`, and the `Shortlist` checkbox
+ticked so the page shows up in the "content ideas" view. Override the column
+names with `NOTION_TITLE_PROPERTY` / `NOTION_DATE_PROPERTY` /
+`NOTION_SHORTLIST_PROPERTY` if the table changes.
 
 ## Settings
 

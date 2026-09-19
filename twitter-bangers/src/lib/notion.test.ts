@@ -19,10 +19,11 @@ test('pageTitle', () => {
   assert.equal(pageTitle(new Date(2026, 8, 13)), 'Twitter bangers — week of 13 Sep 2026');
 });
 
-test('pageProperties fills the configured title and date columns', () => {
-  assert.deepEqual(pageProperties(new Date(2026, 8, 13, 5), 'Post name', 'Date'), {
+test('pageProperties fills the configured title and date columns and ticks the shortlist', () => {
+  assert.deepEqual(pageProperties(new Date(2026, 8, 13, 5), 'Post name', 'Date', 'Shortlist'), {
     'Post name': { title: [{ type: 'text', text: { content: 'Twitter bangers — week of 13 Sep 2026' } }] },
     Date: { date: { start: '2026-09-13' } },
+    Shortlist: { checkbox: true },
   });
 });
 

@@ -2,7 +2,7 @@
 // 50k+ likes and images, report the top unseen ones to Discord and save them
 // as embeds on a new Notion page.
 import { config, validateConfig } from './lib/config.js';
-import { buildQuery, searchUrl, selectTweets, sinceDate } from './lib/tweets.js';
+import { buildQuery, isEnglish, searchUrl, selectTweets, sinceDate } from './lib/tweets.js';
 import { diffNew, loadState, mergeSeen, saveState } from './lib/state.js';
 import { buildReportMessages } from './lib/report.js';
 import { postReport, sendAlert } from './lib/discord.js';
@@ -35,6 +35,8 @@ async function main(): Promise<void> {
     throw new Error('Search responses arrived but no tweets were parsed — X may have changed its response shape.');
   }
 
+  const foreign = raw.tweets.filter((t) => !isEnglish(t.lang)).length;
+  if (foreign > 0) console.log(`Dropped ${foreign} tweet(s) X tagged as non-English despite lang:en.`);
   const fetched = selectTweets(raw.tweets, { minFaves: config.minFaves, maxPosts: config.maxPosts });
   const state = loadState();
   const fresh = diffNew(state, fetched);
