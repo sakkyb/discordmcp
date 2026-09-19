@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { sinceDate, buildQuery, searchUrl, parseSearchResponse, selectTweets } from './tweets.js';
+import { sinceDate, buildQuery, searchUrl, parseSearchResponse, selectTweets, isEnglish } from './tweets.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(fs.readFileSync(path.join(here, 'fixtures', 'search-timeline.json'), 'utf-8'));
@@ -16,10 +16,10 @@ test('sinceDate subtracts lookback days across month and year boundaries', () =>
 
 test('buildQuery and searchUrl', () => {
   const q = buildQuery(50_000, '2026-09-06');
-  assert.equal(q, 'min_faves:50000 filter:images since:2026-09-06');
+  assert.equal(q, 'min_faves:50000 filter:images lang:en since:2026-09-06');
   assert.equal(
     searchUrl(q),
-    'https://x.com/search?q=min_faves%3A50000%20filter%3Aimages%20since%3A2026-09-06&src=typed_query',
+    'https://x.com/search?q=min_faves%3A50000%20filter%3Aimages%20lang%3Aen%20since%3A2026-09-06&src=typed_query',
   );
 });
 
@@ -35,6 +35,7 @@ test('parseSearchResponse extracts tweets, unwraps visibility results, drops ret
   assert.equal(a.text, 'First banger');
   assert.equal(a.url, 'https://x.com/alice/status/1001');
   assert.equal(a.createdAt, '2026-09-09T12:00:00.000Z');
+  assert.equal(a.lang, 'en');
   const b = tweets.find((t) => t.id === '1002')!;
   assert.equal(b.handle, 'bob');
   assert.equal(b.imageCount, 0);
@@ -59,4 +60,20 @@ test('selectTweets filters by likes and images, sorts, dedupes and caps', () => 
   assert.deepEqual(loose.map((t) => t.id), ['1001', '1004']);
   const capped = selectTweets(doubled, { minFaves: 1, maxPosts: 1 });
   assert.deepEqual(capped.map((t) => t.id), ['1001']);
+});
+
+test('isEnglish: English and no-language codes pass, other languages do not', () => {
+  for (const ok of ['en', 'und', 'zxx', 'qme', 'qst', '', undefined]) assert.equal(isEnglish(ok), true, String(ok));
+  for (const no of ['ja', 'es', 'pt', 'fr', 'hi', 'ar', 'in']) assert.equal(isEnglish(no), false, no);
+});
+
+test('selectTweets drops posts X tagged as another language', () => {
+  const base = parseSearchResponse(fixture).find((t) => t.id === '1001')!;
+  const tweets = [
+    { ...base, id: 'en', lang: 'en' },
+    { ...base, id: 'ja', lang: 'ja' },
+    { ...base, id: 'none', lang: undefined },
+    { ...base, id: 'media', lang: 'qme' },
+  ];
+  assert.deepEqual(selectTweets(tweets, { minFaves: 1, maxPosts: 100 }).map((t) => t.id).sort(), ['en', 'media', 'none']);
 });

@@ -17,6 +17,7 @@ export interface Tweet {
   createdAt: string; // ISO, '' when unparseable
   imageCount: number;
   imageUrls: string[]; // pbs.twimg.com URLs of the photos, for the classifier
+  lang?: string; // X's BCP-47 guess for the text ("en", "ja"…); absent when X gave none
   verdict?: Verdict; // set once classified
 }
 
@@ -28,8 +29,19 @@ export function sinceDate(runDate: Date, lookbackDays: number): string {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
+// lang:en asks X for English posts only. X's language detection is not
+// perfect, so selectTweets() checks each tweet's own lang tag as well.
 export function buildQuery(minFaves: number, since: string): string {
-  return `min_faves:${minFaves} filter:images since:${since}`;
+  return `min_faves:${minFaves} filter:images lang:en since:${since}`;
+}
+
+// X tags text-less or unclassifiable posts with these instead of a language:
+// und (undetermined), zxx (no linguistic content), qme (media only), qst
+// (very short). An image-only post is exactly what a bangers list wants, so
+// those pass; only a positively-identified other language is rejected.
+const NO_LANGUAGE = new Set(['', 'und', 'zxx', 'qme', 'qst']);
+export function isEnglish(lang: string | undefined): boolean {
+  return lang === undefined || lang === 'en' || NO_LANGUAGE.has(lang);
 }
 
 // No f= parameter is the "Top" tab: X's own ranking of what went big, which
@@ -93,6 +105,7 @@ function toTweet(node: Obj): Tweet | null {
   const created = typeof legacy.created_at === 'string' ? new Date(legacy.created_at) : new Date(NaN);
   const likes =
     typeof legacy.favorite_count === 'number' ? legacy.favorite_count : Number(legacy.favorite_count) || 0;
+  const lang = typeof legacy.lang === 'string' ? legacy.lang : undefined;
 
   return {
     id,
@@ -104,6 +117,7 @@ function toTweet(node: Obj): Tweet | null {
     createdAt: Number.isNaN(created.getTime()) ? '' : created.toISOString(),
     imageCount,
     imageUrls,
+    ...(lang !== undefined ? { lang } : {}),
   };
 }
 
@@ -140,7 +154,7 @@ export function parseSearchResponse(body: unknown): Tweet[] {
 export function selectTweets(tweets: Tweet[], opts: { minFaves: number; maxPosts: number }): Tweet[] {
   const byId = new Map<string, Tweet>();
   for (const t of tweets) {
-    if (t.likes < opts.minFaves || t.imageCount < 1) continue;
+    if (t.likes < opts.minFaves || t.imageCount < 1 || !isEnglish(t.lang)) continue;
     const prev = byId.get(t.id);
     if (!prev || t.likes > prev.likes) byId.set(t.id, t);
   }

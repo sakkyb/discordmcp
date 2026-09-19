@@ -55,6 +55,10 @@ export const config = {
   get notionDateProperty(): string {
     return process.env.NOTION_DATE_PROPERTY || 'Date';
   },
+  // Checkbox column ticked on every weekly page so it shows in "content ideas".
+  get notionShortlistProperty(): string {
+    return process.env.NOTION_SHORTLIST_PROPERTY || 'Shortlist';
+  },
   get discordChannelId(): string {
     return process.env.DISCORD_CHANNEL_ID || '1548630846737490041'; // #twitter-weekly-bangers
   },
