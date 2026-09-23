@@ -113,6 +113,17 @@ export const config = {
   get headless(): boolean {
     return process.env.HEADLESS === 'true';
   },
+  // 15-minute poller: once this many posts dated today are known, the rest of
+  // the day's slots skip LinkedIn. Two covers the occasional double-post day
+  // while halving the daily load on a normal one.
+  get dailyPostCap(): number {
+    return Number(process.env.DAILY_POST_CAP || 2);
+  },
+  // Random delay before each slot touches LinkedIn, so the hits do not land on
+  // machine-exact quarter hours. 0–4 minutes by default.
+  get pollJitterMaxMs(): number {
+    return Number(process.env.POLL_JITTER_MAX_MS || 240_000);
+  },
 };
 
 // Fail fast on missing configuration before doing anything expensive

@@ -64,3 +64,58 @@ test('a run that was healthy and stays healthy says nothing', () => {
 test('a fault clearing while another persists is not called recovery', () => {
   assert.equal(selfCheckAnnouncement(['screencapture', 'display'], ['display']), null);
 });
+
+// --- 15-minute polling: day cap, pause and state normalisation -------------
+import { postsOnDay, isPaused, endOfLocalDay, normalizeState } from './state.js';
+
+const createdAt = (urn: string) => new Date(Number(urn.replace('t:', '')));
+
+test('postsOnDay counts only posts created on that local calendar day', () => {
+  const day = new Date(2026, 8, 23, 10, 15);
+  const urns = [
+    `t:${new Date(2026, 8, 23, 0, 0, 1).getTime()}`,   // just after midnight today
+    `t:${new Date(2026, 8, 23, 17, 0).getTime()}`,     // this evening
+    `t:${new Date(2026, 8, 22, 23, 59).getTime()}`,    // last night
+    `t:${new Date(2026, 8, 24, 0, 0).getTime()}`,      // tomorrow
+  ];
+  assert.equal(postsOnDay(urns, day, createdAt), 2);
+});
+
+test('postsOnDay is zero for an empty known list', () => {
+  assert.equal(postsOnDay([], new Date(), createdAt), 0);
+});
+
+test('isPaused is false when no pause has been recorded', () => {
+  assert.equal(isPaused(null, new Date()), false);
+});
+
+test('isPaused is true while the pause is still in the future', () => {
+  const now = new Date(2026, 8, 23, 11, 0);
+  assert.equal(isPaused(new Date(2026, 8, 23, 23, 59, 59).toISOString(), now), true);
+});
+
+test('isPaused is false once the pause has expired', () => {
+  const now = new Date(2026, 8, 24, 8, 47);
+  assert.equal(isPaused(new Date(2026, 8, 23, 23, 59, 59).toISOString(), now), false);
+});
+
+test('endOfLocalDay is the last millisecond of the same local day', () => {
+  const end = endOfLocalDay(new Date(2026, 8, 23, 11, 2));
+  assert.deepEqual(
+    [end.getFullYear(), end.getMonth(), end.getDate(), end.getHours(), end.getMinutes(), end.getSeconds(), end.getMilliseconds()],
+    [2026, 8, 23, 23, 59, 59, 999],
+  );
+});
+
+test('normalizeState tolerates a state file written before the pause fields existed', () => {
+  const s = normalizeState({ knownUrns: ['a'], pendingWhatsApp: [], failingChecks: [] });
+  assert.equal(s.pausedUntil, null);
+  assert.equal(s.consecutiveScrapeFailures, 0);
+  assert.deepEqual(s.knownUrns, ['a']);
+});
+
+test('normalizeState keeps recorded pause fields', () => {
+  const s = normalizeState({ knownUrns: [], pausedUntil: '2026-09-23T22:59:59.999Z', consecutiveScrapeFailures: 1 });
+  assert.equal(s.pausedUntil, '2026-09-23T22:59:59.999Z');
+  assert.equal(s.consecutiveScrapeFailures, 1);
+});

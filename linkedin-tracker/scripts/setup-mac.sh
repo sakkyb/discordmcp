@@ -38,12 +38,14 @@ done
 cat <<EOF
 
 Done. Schedules (local time):
-  Post checks:      Mon-Fri 09:00/09:30/10:00 + 18:00/18:30/19:00, Sat 10:30/11:00/11:30, Sun 17:30/18:00/18:30
+  Post checks:      every day, every 15 min from 08:47 to 17:02 (34 slots; each slot jitters 0-4 min,
+                    stops for the day once DAILY_POST_CAP=2 posts are found or after a login/challenge page)
   Analytics sync:   Sun, random start 1-6am (launchd fires 01:00, job waits a random <=4h)
   Tomorrow preview: every day 20:00 (renders tomorrow's scheduled post, posts it to #content-upcoming)
 
 Useful commands:
-  node build/check-new-post.js                           # run a check right now
+  SKIP_START_JITTER=true node build/check-new-post.js    # run a check right now (no random delay)
+  IGNORE_PAUSE=true node build/check-new-post.js         # check now even though the breaker paused today's slots
   DRY_RUN=true node build/check-tomorrow-post.js          # preview tomorrow's post without posting to Discord
   SKIP_START_JITTER=true node build/weekly-engagement.js  # run analytics sync now (skip the wait)
   tail -f logs/tracker.out.log              # follow checker logs
