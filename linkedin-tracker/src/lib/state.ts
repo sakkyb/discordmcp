@@ -22,19 +22,31 @@ export interface TrackerState {
   // Names of the preflight checks that failed on the last self-check run. Kept
   // so the job can announce CHANGES only — see selfCheckAnnouncement().
   failingChecks: string[];
+  // Circuit breaker (see lib/breaker.ts): ISO time until which the poller skips
+  // LinkedIn entirely, or null. Set to end of the local day when a slot lands
+  // on a login/challenge page or the feed fails twice running.
+  pausedUntil: string | null;
+  // Soft scrape failures in a row (empty feed, timeouts). Reset on success.
+  consecutiveScrapeFailures: number;
+}
+
+// Fields absent on state files written before they existed default rather
+// than fail, so a deploy never needs a hand-edit of state.json.
+export function normalizeState(raw: any): TrackerState {
+  return {
+    knownUrns: Array.isArray(raw?.knownUrns) ? raw.knownUrns : [],
+    pendingWhatsApp: Array.isArray(raw?.pendingWhatsApp) ? raw.pendingWhatsApp : [],
+    failingChecks: Array.isArray(raw?.failingChecks) ? raw.failingChecks : [],
+    pausedUntil: typeof raw?.pausedUntil === 'string' ? raw.pausedUntil : null,
+    consecutiveScrapeFailures: Number.isInteger(raw?.consecutiveScrapeFailures) ? raw.consecutiveScrapeFailures : 0,
+  };
 }
 
 export function loadState(): TrackerState {
   try {
-    const raw = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
-    return {
-      knownUrns: Array.isArray(raw.knownUrns) ? raw.knownUrns : [],
-      // Absent on state files written before this field existed.
-      pendingWhatsApp: Array.isArray(raw.pendingWhatsApp) ? raw.pendingWhatsApp : [],
-      failingChecks: Array.isArray(raw.failingChecks) ? raw.failingChecks : [],
-    };
+    return normalizeState(JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8')));
   } catch {
-    return { knownUrns: [], pendingWhatsApp: [], failingChecks: [] };
+    return normalizeState({});
   }
 }
 
@@ -44,8 +56,33 @@ export function saveState(state: TrackerState): void {
     knownUrns: state.knownUrns.slice(-200),
     pendingWhatsApp: state.pendingWhatsApp.slice(-20),
     failingChecks: state.failingChecks,
+    pausedUntil: state.pausedUntil,
+    consecutiveScrapeFailures: state.consecutiveScrapeFailures,
   };
   fs.writeFileSync(STATE_FILE, JSON.stringify(trimmed, null, 2));
+}
+
+// --- 15-minute polling gates ----------------------------------------------
+
+function sameLocalDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+// How many known posts were created on `day` (local calendar day). Drives the
+// day cap: once the expected number of posts has landed there is nothing left
+// to poll for, so the remaining slots skip LinkedIn.
+export function postsOnDay(knownUrns: string[], day: Date, createdAt: (urn: string) => Date): number {
+  return knownUrns.filter((urn) => sameLocalDay(createdAt(urn), day)).length;
+}
+
+export function isPaused(pausedUntil: string | null, now: Date): boolean {
+  if (!pausedUntil) return false;
+  const until = new Date(pausedUntil);
+  return !Number.isNaN(until.getTime()) && until.getTime() > now.getTime();
+}
+
+export function endOfLocalDay(now: Date): Date {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 }
 
 export function recordWhatsAppFailure(list: PendingWhatsApp[], urn: string, url: string): PendingWhatsApp[] {

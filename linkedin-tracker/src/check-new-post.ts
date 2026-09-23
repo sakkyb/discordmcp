@@ -1,12 +1,20 @@
 // Scheduled job: detect a new post on the profile and fan out notifications.
-// Runs at the times defined in scripts/com.sakky.linkedin-tracker.plist.template.
-// Re-runs are naturally idempotent: a post already in state.json is ignored,
-// so the 30/60-minute retry slots simply no-op once the post has been caught.
+// Runs every 15 minutes, 08:47–17:02, as defined in
+// scripts/com.sakky.linkedin-tracker.plist.template. Re-runs are naturally
+// idempotent: a post already in state.json is ignored, so a slot simply no-ops
+// once the post has been caught.
+//
+// Because that is 34 LinkedIn loads a day, the cheap gates run BEFORE Chrome
+// opens: the day cap (enough posts found today → nothing left to look for),
+// the circuit breaker (a login/challenge page earlier today → leave LinkedIn
+// alone until tomorrow), then a random delay so the hits are not on
+// machine-exact quarter hours.
 import { openBrowser, getRecentPosts, postCreatedAt } from './lib/linkedin.js';
 import {
   loadState, saveState, recordWhatsAppFailure, clearWhatsAppPending, duePending,
-  MAX_WHATSAPP_ATTEMPTS,
+  postsOnDay, isPaused, endOfLocalDay, MAX_WHATSAPP_ATTEMPTS,
 } from './lib/state.js';
+import { classifyScrapeError, breakerDecision } from './lib/breaker.js';
 import {
   addPost, findExistingPage, updateEngagement, findDatedRowsNeedingUrl, stampPostUrl,
   postDateStr, findUnstampedCandidates, replacePageBody,
@@ -23,26 +31,18 @@ validateConfig();
 const DRY_RUN = process.env.DRY_RUN === 'true';
 if (DRY_RUN) console.log('DRY RUN — no Notion or Discord writes will be made.');
 
+// For a manual run after fixing whatever tripped the breaker: check now rather
+// than waiting for tomorrow's first slot.
+const IGNORE_PAUSE = process.env.IGNORE_PAUSE === 'true';
+
 // Only same-day posts get announced; see the guard further down.
 const ANNOUNCE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const state = loadState();
 const firstRun = state.knownUrns.length === 0;
+const now = new Date();
 
-console.log(`[${new Date().toISOString()}] Checking for new LinkedIn posts...`);
-
-const browser = await openBrowser();
-let posts;
-try {
-  const page = browser.pages()[0] ?? await browser.newPage();
-  posts = await getRecentPosts(page, 10);
-} finally {
-  await browser.close();
-}
-
-console.log(`Found ${posts.length} recent posts on the profile.`);
-
-const newPosts = posts.filter(p => !state.knownUrns.includes(p.urn));
+console.log(`[${now.toISOString()}] Checking for new LinkedIn posts...`);
 
 // One place that sends, records the outcome and alerts — used by both the
 // new-post path and the retry path so they cannot drift apart.
@@ -89,9 +89,9 @@ async function trySendWhatsApp(urn: string, url: string): Promise<boolean> {
   return false;
 }
 
-// Retry any WhatsApp sends that failed on an earlier slot. This runs BEFORE the
-// no-new-posts exit, because a retry is due whether or not there is a new post —
-// putting it after would mean retries only ever ran on days with a new post.
+// Retry any WhatsApp sends that failed on an earlier slot. This runs BEFORE
+// the gates and the scrape: a retry needs WhatsApp, not LinkedIn, so it must
+// still happen on a capped or paused day.
 const retries = duePending(state.pendingWhatsApp, (urn) =>
   Date.now() - postCreatedAt(urn).getTime() <= ANNOUNCE_MAX_AGE_MS);
 for (const p of retries) {
@@ -99,6 +99,85 @@ for (const p of retries) {
   await trySendWhatsApp(p.urn, p.url);
 }
 if (retries.length) saveState(state);
+
+// Gate 1: day cap. Enough posts found today means there is nothing left to
+// poll for; the remaining slots cost LinkedIn loads for no information.
+const foundToday = postsOnDay(state.knownUrns, now, postCreatedAt);
+if (!firstRun && foundToday >= config.dailyPostCap) {
+  console.log(`Day cap reached (${foundToday}/${config.dailyPostCap} posts found today); skipping LinkedIn until tomorrow.`);
+  process.exit(0);
+}
+
+// Gate 2: circuit breaker. An earlier slot today hit a login or challenge
+// page (or the feed failed twice running); retrying through that every 15
+// minutes is exactly the behaviour that earns an account restriction.
+if (isPaused(state.pausedUntil, now)) {
+  if (IGNORE_PAUSE) {
+    console.log(`Breaker is paused until ${state.pausedUntil} — ignoring because IGNORE_PAUSE=true.`);
+  } else {
+    console.log(`Breaker is paused until ${state.pausedUntil}; skipping LinkedIn. (IGNORE_PAUSE=true to override.)`);
+    process.exit(0);
+  }
+}
+
+// Gate 3: jitter. Manual and dry runs skip it, same convention as the
+// weekly analytics job's SKIP_START_JITTER.
+if (!DRY_RUN && process.env.SKIP_START_JITTER !== 'true' && config.pollJitterMaxMs > 0) {
+  const delay = Math.floor(Math.random() * config.pollJitterMaxMs);
+  console.log(`Sleeping ${Math.round(delay / 1000)}s before touching LinkedIn...`);
+  await new Promise((resolve) => setTimeout(resolve, delay));
+}
+
+let posts;
+try {
+  const browser = await openBrowser();
+  try {
+    const page = browser.pages()[0] ?? await browser.newPage();
+    posts = await getRecentPosts(page, 10, { isKnown: (urn) => state.knownUrns.includes(urn) });
+  } finally {
+    await browser.close();
+  }
+} catch (error) {
+  const kind = classifyScrapeError(error);
+  const message = error instanceof Error ? error.message : String(error);
+  const { trip, consecutive } = breakerDecision(kind, state.consecutiveScrapeFailures);
+  console.error(`Scrape failed (${kind}, consecutive soft failures: ${consecutive}): ${message}`);
+
+  if (DRY_RUN) {
+    console.log(`  → (dry run) would ${trip ? 'trip the breaker until end of day' : 'record the failure'}.`);
+    process.exit(1);
+  }
+
+  state.consecutiveScrapeFailures = consecutive;
+  if (trip) {
+    state.pausedUntil = endOfLocalDay(now).toISOString();
+    console.error(`  → Breaker tripped: no more LinkedIn checks until ${state.pausedUntil}.`);
+  }
+  saveState(state);
+
+  if (trip) {
+    try {
+      await sendDiscordAlert(
+        `LinkedIn post checker paused for the rest of today (${kind}).\n${message}\n` +
+        `Slots resume tomorrow at 08:47. Once it is fixed, run ` +
+        '`IGNORE_PAUSE=true node build/check-new-post.js` on the Mini to check now.',
+      );
+    } catch (alertErr) {
+      console.error('  → Discord alert failed:', alertErr instanceof Error ? alertErr.message : alertErr);
+    }
+  }
+  process.exit(1);
+}
+
+// A clean scrape ends any run of soft failures.
+if (state.consecutiveScrapeFailures > 0 && !DRY_RUN) {
+  state.consecutiveScrapeFailures = 0;
+  saveState(state);
+}
+
+console.log(`Found ${posts.length} recent posts on the profile.`);
+
+const newPosts = posts.filter(p => !state.knownUrns.includes(p.urn));
 
 if (newPosts.length === 0) {
   console.log('No new posts since last check.');
@@ -180,7 +259,10 @@ for (const post of newPosts.reverse()) { // oldest first so ordering reads natur
 
   if (DRY_RUN) {
     console.log(`  → (dry run) skipped Discord and WhatsApp.${unmatchedNote ? ` Would have added: "${unmatchedNote}"` : ''}`);
-  } else if (tooOldToAnnounce) {
+    continue;
+  }
+
+  if (tooOldToAnnounce) {
     console.log(`  → Recorded but not announced: post is ${(ageMs / 3_600_000).toFixed(1)}h old (catch-up after an outage).`);
   } else {
     try {
@@ -193,13 +275,15 @@ for (const post of newPosts.reverse()) { // oldest first so ordering reads natur
     // Opt-in extra channel: WhatsApp group via the macOS WhatsApp app. A failure
     // here is recorded for retry on a later slot rather than lost.
     await trySendWhatsApp(post.urn, post.url);
-
-    // Mark as seen even if a notification failed — we'd rather miss one
-    // notification than re-spam the channel on every retry slot. Dry runs skip
-    // this so they can be re-run.
-    state.knownUrns.push(post.urn);
-    saveState(state);
   }
+
+  // Mark as seen even if a notification failed — we'd rather miss one
+  // notification than re-spam the channel on every slot. This covers the
+  // too-old branch as well: previously a catch-up post was never marked known,
+  // so every later slot re-found it and refreshed its Notion row again. Dry
+  // runs skip this so they can be re-run.
+  state.knownUrns.push(post.urn);
+  saveState(state);
 }
 
 console.log('Done.');

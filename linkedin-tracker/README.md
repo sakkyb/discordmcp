@@ -8,12 +8,15 @@ Scheduled jobs on the Mac Mini that watch Sakky's LinkedIn profile for new posts
 - **Analytics sync** (`weekly-engagement.js`): once a week, opens each of the ~15 most recent posts' owner-only analytics page and writes the full metric set (Impressions, Profile views, Followers gained, Reactions, Comments, Reposts, Saves, Sends) to Notion.
 - **Notion reuses the "Content schedule" database.** For each post the tracker finds the existing row by matching the LinkedIn **activity id** inside the `Post URL` column (robust across the `/feed/update/…` and `/posts/…` URL forms) and updates the metrics in place. If no row matches (an unplanned post), it creates one with `Post name`/`Post URL`/`Date` + metrics — so the table stays in sync whether a post was planned there or not. No `URN`/`Last Checked` columns are needed.
 - **Schedules** (local time, via `launchd`):
-  - Mon–Fri: 09:00, with retry slots at 09:30 and 10:00
-  - Sat: 10:30, retries 11:00 and 11:30
-  - Sun: 17:30, retries 18:00 and 18:30
+  - Post checks: every day, every 15 minutes from **08:47 to 17:02** (34 slots on the :47/:02/:17/:32 grid). Posts are not made at fixed times any more, so the checker polls instead of guessing.
   - Analytics sync: Sunday, random start across **1–6am** (launchd fires at 01:00, the job then waits a random ≤4h). Per-post analytics reads are spaced 60–180s apart — deliberately slow, since it runs overnight, to avoid machine-timed patterns.
 
-Retry slots need no special logic — every run is the same idempotent check, and once a post is recorded in `state.json` the later slots find nothing new and exit.
+Slots need no special logic — every run is the same idempotent check, and once a post is recorded in `state.json` the later slots find nothing new and exit. What keeps 34 slots from being 34 LinkedIn loads a day, all inside `check-new-post.js` and decided *before* Chrome opens:
+
+- **Day cap.** Once `DAILY_POST_CAP` (default 2) posts dated today are known, the remaining slots skip LinkedIn. Nothing is left to look for.
+- **Circuit breaker.** A slot that lands on a login page or a security checkpoint, or that finds an empty feed twice running, pauses every remaining slot until midnight (`pausedUntil` in `state.json`) and sends one alert to `#errors-sakky`. Retrying through a challenge every 15 minutes is how a soft warning becomes a restriction. Slots resume by themselves next morning; if the cause is still there it trips and alerts again, once a day, until fixed. After fixing, `IGNORE_PAUSE=true node build/check-new-post.js` checks immediately.
+- **Jitter.** Each slot waits a random 0–4 minutes (`POLL_JITTER_MAX_MS`) before touching LinkedIn, so hits never land on machine-exact quarter hours. `SKIP_START_JITTER=true` skips it for manual runs.
+- **One screen, not three.** The poller reads the first screen of the activity feed and only scrolls further while *everything* on screen is unknown (a catch-up after an outage). A normal slot is a single page load.
 
 The first ever run records all existing posts as a baseline **without notifying**, so it won't spam the channel with your back catalogue.
 
@@ -93,7 +96,8 @@ All remaining commands run inside `linkedin-tracker/` within the cloned repo (pu
 ## Operations
 
 ```bash
-node build/check-new-post.js                          # manual check now
+SKIP_START_JITTER=true node build/check-new-post.js   # manual check now (skip the 0-4 min jitter)
+IGNORE_PAUSE=true node build/check-new-post.js        # check now even though the breaker paused today's slots
 SKIP_START_JITTER=true node build/weekly-engagement.js # manual analytics sync now (skip the 1-6am wait)
 tail -f logs/tracker.out.log                          # checker logs
 tail -f logs/engagement.out.log                       # analytics logs
@@ -103,8 +107,9 @@ launchctl list | grep com.sakky.linkedin              # confirm jobs loaded
 
 ## Things worth knowing
 
-- **The LinkedIn session expires.** If LinkedIn logs the profile out, runs fail with a clear "run npm run login:linkedin" error in `logs/tracker.err.log`. Re-linking takes a minute.
+- **The LinkedIn session expires.** If LinkedIn logs the profile out, the next slot fails with a clear "run npm run login:linkedin" error in `logs/tracker.err.log`, trips the breaker and posts one alert to `#errors-sakky`. Re-linking takes a minute; then `IGNORE_PAUSE=true node build/check-new-post.js` to catch up without waiting for tomorrow.
+- **A security checkpoint is different from an expired session.** The breaker names it as a `challenge`. Open Chrome with `chrome-profile/` (or run `npm run login:linkedin`) and complete it by hand; do not just re-login and hope.
 - **Selectors will rot.** LinkedIn changes its markup periodically — this applies to both the activity feed and the analytics page. The scrapers fail loudly (naming the selector/label they expected) rather than silently reporting zeros; if the error log shows markup errors, update the selectors in `src/lib/linkedin.ts`.
-- **Keep the frequency low.** The schedule is deliberately a handful of checks per day at human-plausible times, and the weekly analytics pass is paced 60–180s per post overnight. LinkedIn's ToS prohibits scraping and automated access; even benign automation against your own profile carries some account-restriction risk if it looks bot-like — resist turning this into a constant poller.
+- **Keep the footprint low.** The poller is the one job that runs often (34 slots a day), which is why it jitters, caps, breaks and reads one screen — see "How it works". The weekly analytics pass is paced 60–180s per post overnight. LinkedIn's ToS prohibits scraping and automated access; even benign automation against your own profile carries some account-restriction risk if it looks bot-like. Early signs are the session expiring more often than every few weeks, empty feed shells, or a checkpoint page; if any of those show up, drop to a 30-minute grid (delete the :17/:47 entries in the plist template) before doing anything else. Do not go tighter than 15 minutes.
 - **Discord uses the official bot API** (the same bot as the Discord MCP server) — no unofficial-library fragility. It just needs `DISCORD_TOKEN` set and the bot present in the guild.
 - **The Mac must be awake** at the scheduled times (already handled — the Discord bot setup disables sleep) and the user must be logged in (launchd LaunchAgents run in the user session, which headed Chrome needs).

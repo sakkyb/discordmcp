@@ -60,9 +60,16 @@ function parseCount(text: string | null | undefined): number {
 const LOGGED_OUT_HINT = `Run 'npm run login:linkedin' on the Mac Mini to log in again.`;
 
 export async function assertLoggedIn(page: Page): Promise<void> {
-  // If the session has expired LinkedIn bounces to a login/authwall page.
   const url = page.url();
-  if (/\/(login|authwall|checkpoint|uas\/login)/.test(url)) {
+  // A checkpoint is LinkedIn asking a human to prove something (captcha,
+  // "unusual activity", device verification). Named separately from a plain
+  // expired session because the poller's breaker must stop on it at once and
+  // the fix is not simply logging in again.
+  if (/\/checkpoint\//.test(url)) {
+    throw new Error(`LinkedIn is showing a security challenge (landed on ${url}). Open Chrome with the tracker profile and complete it by hand.`);
+  }
+  // If the session has expired LinkedIn bounces to a login/authwall page.
+  if (/\/(login|authwall|uas\/login)/.test(url)) {
     throw new Error(`LinkedIn session is not logged in (landed on ${url}). ${LOGGED_OUT_HINT}`);
   }
 
@@ -93,11 +100,32 @@ export async function assertLoggedIn(page: Page): Promise<void> {
   }
 }
 
+// Whether the poller should load another screen of cards. It scrolls only
+// while EVERYTHING on screen is unknown — the normal run sees the newest post
+// (or nothing new) on the first screen and makes one page load; only a
+// catch-up after an outage, where every visible card is new, digs deeper.
+export function shouldScrollAgain(
+  visibleUrns: string[],
+  isKnown: (urn: string) => boolean,
+  scrollsDone: number,
+  maxScrolls: number,
+): boolean {
+  if (scrollsDone >= maxScrolls || visibleUrns.length === 0) return false;
+  return visibleUrns.every((urn) => !isKnown(urn));
+}
+
+export interface RecentPostsOptions {
+  // When given, scrolling is governed by shouldScrollAgain() instead of a fixed
+  // count — the lighter footprint the 15-minute poller wants. Absent, the
+  // weekly analytics sync gets its full multi-screen read as before.
+  isKnown?: (urn: string) => boolean;
+}
+
 // Scrape the user's own recent posts from their profile activity feed.
 // Selectors here WILL eventually break when LinkedIn ships new markup —
 // each extraction has fallbacks and the function fails loudly rather than
 // silently returning nothing when the page structure is unrecognizable.
-export async function getRecentPosts(page: Page, limit = 10): Promise<LinkedInPost[]> {
+export async function getRecentPosts(page: Page, limit = 10, opts: RecentPostsOptions = {}): Promise<LinkedInPost[]> {
   const activityUrl = `${config.linkedinProfileUrl}/recent-activity/all/`;
   await page.goto(activityUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await assertLoggedIn(page);
@@ -128,16 +156,47 @@ export async function getRecentPosts(page: Page, limit = 10): Promise<LinkedInPo
 
   // Scroll to load more cards beyond the first screen — more scrolls when a
   // larger set is requested (e.g. a multi-week window).
-  const scrolls = Math.max(3, Math.ceil(limit / 4));
-  for (let i = 0; i < scrolls; i++) {
-    await page.mouse.wheel(0, 1500);
-    await page.waitForTimeout(1200);
+  const maxScrolls = Math.max(3, Math.ceil(limit / 4));
+  if (opts.isKnown) {
+    // Poller: one screen is normally enough; see shouldScrollAgain().
+    for (let done = 0; ; done++) {
+      const visible = (await readCards(page, limit)).filter((c) => !c.isRepost).map((c) => c.urn);
+      if (!shouldScrollAgain(visible, opts.isKnown, done, maxScrolls)) break;
+      await scrollOnce(page);
+    }
+  } else {
+    for (let i = 0; i < maxScrolls; i++) await scrollOnce(page);
   }
 
-  const posts = await page.evaluate((max: number) => {
-    const results: Array<{
-      urn: string; text: string; reactions: string; comments: string; reposts: string; isRepost: boolean;
-    }> = [];
+  const posts = await readCards(page, limit);
+
+  return posts
+    .filter(p => !p.isRepost)
+    .map(p => ({
+      urn: p.urn,
+      url: `https://www.linkedin.com/feed/update/${p.urn}/`,
+      text: p.text,
+      reactions: parseCount(p.reactions),
+      comments: parseCount(p.comments),
+      reposts: parseCount(p.reposts),
+    }));
+}
+
+async function scrollOnce(page: Page): Promise<void> {
+  // A little variation in distance and pause, so consecutive runs are not
+  // byte-identical to each other.
+  await page.mouse.wheel(0, 1200 + Math.floor(Math.random() * 600));
+  await page.waitForTimeout(900 + Math.floor(Math.random() * 700));
+}
+
+interface RawCard {
+  urn: string; text: string; reactions: string; comments: string; reposts: string; isRepost: boolean;
+}
+
+// Read the post cards currently in the DOM. Pure extraction; no navigation.
+async function readCards(page: Page, limit: number): Promise<RawCard[]> {
+  return page.evaluate((max: number) => {
+    const results: RawCard[] = [];
     const cards = document.querySelectorAll<HTMLElement>('[data-urn^="urn:li:activity:"]');
     for (const card of Array.from(cards)) {
       if (results.length >= max) break;
@@ -177,17 +236,6 @@ export async function getRecentPosts(page: Page, limit = 10): Promise<LinkedInPo
     }
     return results;
   }, limit);
-
-  return posts
-    .filter(p => !p.isRepost)
-    .map(p => ({
-      urn: p.urn,
-      url: `https://www.linkedin.com/feed/update/${p.urn}/`,
-      text: p.text,
-      reactions: parseCount(p.reactions),
-      comments: parseCount(p.comments),
-      reposts: parseCount(p.reposts),
-    }));
 }
 
 // Read one post's full analytics from its owner-only analytics page. LinkedIn
