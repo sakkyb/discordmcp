@@ -137,7 +137,7 @@ export async function getRecentPosts(page: Page, limit = 10, opts: RecentPostsOp
   // The feed is markedly slower to hydrate under automation than in an ordinary
   // Chrome window — 120s, not 45s, is what it actually needs.
   const CARD_TIMEOUT_MS = 120_000;
-  const cardSelector = '[data-urn^="urn:li:activity:"]';
+  const cardSelector = ACTIVITY_CARD_SELECTOR;
   try {
     await page.waitForSelector(cardSelector, { timeout: CARD_TIMEOUT_MS });
   } catch {
@@ -160,7 +160,7 @@ export async function getRecentPosts(page: Page, limit = 10, opts: RecentPostsOp
   if (opts.isKnown) {
     // Poller: one screen is normally enough; see shouldScrollAgain().
     for (let done = 0; ; done++) {
-      const visible = (await readCards(page, limit)).filter((c) => !c.isRepost).map((c) => c.urn);
+      const visible = (await page.evaluate(extractActivityCards, limit)).filter((c) => !c.isRepost).map((c) => c.urn);
       if (!shouldScrollAgain(visible, opts.isKnown, done, maxScrolls)) break;
       await scrollOnce(page);
     }
@@ -168,7 +168,7 @@ export async function getRecentPosts(page: Page, limit = 10, opts: RecentPostsOp
     for (let i = 0; i < maxScrolls; i++) await scrollOnce(page);
   }
 
-  const posts = await readCards(page, limit);
+  const posts = await page.evaluate(extractActivityCards, limit);
 
   return posts
     .filter(p => !p.isRepost)
@@ -176,7 +176,7 @@ export async function getRecentPosts(page: Page, limit = 10, opts: RecentPostsOp
       urn: p.urn,
       url: `https://www.linkedin.com/feed/update/${p.urn}/`,
       text: p.text,
-      reactions: parseCount(p.reactions),
+      reactions: reactionsFromText(p.reactions),
       comments: parseCount(p.comments),
       reposts: parseCount(p.reposts),
     }));
@@ -189,53 +189,66 @@ async function scrollOnce(page: Page): Promise<void> {
   await page.waitForTimeout(900 + Math.floor(Math.random() * 700));
 }
 
-interface RawCard {
+export interface RawCard {
   urn: string; text: string; reactions: string; comments: string; reposts: string; isRepost: boolean;
 }
 
+// Since 2026-10-07 LinkedIn's activity feed has no data-urn attribute and no
+// update-components-* / social-details-* classes: class names are obfuscated
+// and change per build. The owner-only "View analytics" link is the one stable
+// hook that names the post, so a card is "the listitem around that link".
+export const ACTIVITY_CARD_SELECTOR = 'a[href*="/analytics/post-summary/urn:li:activity:"]';
+
 // Read the post cards currently in the DOM. Pure extraction; no navigation.
-async function readCards(page: Page, limit: number): Promise<RawCard[]> {
-  return page.evaluate((max: number) => {
-    const results: RawCard[] = [];
-    const cards = document.querySelectorAll<HTMLElement>('[data-urn^="urn:li:activity:"]');
-    for (const card of Array.from(cards)) {
-      if (results.length >= max) break;
-      const urn = card.getAttribute('data-urn') ?? '';
-      if (!urn) continue;
+// Runs INSIDE the page via page.evaluate(extractActivityCards, max), so it must
+// be self-contained: no references to anything else in this module.
+export function extractActivityCards(max: number): RawCard[] {
+  const results: RawCard[] = [];
+  const seen = new Set<string>();
+  const links = document.querySelectorAll<HTMLAnchorElement>('a[href*="/analytics/post-summary/urn:li:activity:"]');
+  for (const link of Array.from(links)) {
+    if (results.length >= max) break;
+    const urn = (link.getAttribute('href') ?? '').match(/urn:li:activity:\d+/)?.[0] ?? '';
+    if (!urn || seen.has(urn)) continue;
+    const card = link.closest<HTMLElement>('[role="listitem"]');
+    if (!card) continue;
+    seen.add(urn);
 
-      // Skip reposts/likes/comments surfaced in the activity feed — we only
-      // want original posts authored by the profile owner.
-      const header = card.querySelector('.update-components-header')?.textContent ?? '';
-      const isRepost = /reposted|likes this|commented on/i.test(header);
+    const lines = (card.innerText ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
 
-      const text =
-        card.querySelector('.update-components-text')?.textContent?.trim() ??
-        card.querySelector('.feed-shared-inline-show-more-text')?.textContent?.trim() ??
-        '';
+    // The first lines are the card header ("Feed post", or "<name> reposted
+    // this" / "likes this" / "commented on this" for activity that is not an
+    // original post). We only want posts authored by the profile owner.
+    const header = lines.slice(0, 2).join(' ');
+    const isRepost = /reposted|likes this|commented on/i.test(header);
 
-      // The reactions count lives in the reactions <li>; LinkedIn exposes it as a
-      // "social proof fallback number" (e.g. "20" for "You and 19 others"). The
-      // older `__reactions-count` class is gone, and a plain [aria-label*="reaction"]
-      // match hits the "Open reactions menu" button (no digits) — so scope to the
-      // reactions item and read the number, with the item's own text as a fallback.
-      const reactions =
-        card.querySelector('.social-details-social-counts__reactions .social-details-social-counts__social-proof-fallback-number')?.textContent ??
-        card.querySelector('.social-details-social-counts__social-proof-fallback-number')?.textContent ??
-        card.querySelector('.social-details-social-counts__reactions')?.textContent ??
-        '';
+    const text = card.querySelector<HTMLElement>('[data-testid="expandable-text-box"]')?.innerText?.trim() ?? '';
 
-      let comments = '';
-      let reposts = '';
-      for (const li of Array.from(card.querySelectorAll('.social-details-social-counts__item, li'))) {
-        const t = li.textContent ?? '';
-        if (/comment/i.test(t) && !comments) comments = t;
-        if (/repost/i.test(t) && !reposts) reposts = t;
-      }
+    // Social counts are plain text lines: "<name> and N others reacted",
+    // "N comments", "N reposts". The bare action buttons ("Like", "Comment",
+    // "Repost", "Send") have no digits, so require one.
+    const reactions = lines.find((l) => /\breacted\b/i.test(l) || /^\d[\d,.]*[KkMm]?\s+reactions?$/i.test(l)) ?? '';
+    const comments = lines.find((l) => /^\d[\d,.]*[KkMm]?\s+comments?$/i.test(l)) ?? '';
+    const reposts = lines.find((l) => /^\d[\d,.]*[KkMm]?\s+reposts?$/i.test(l)) ?? '';
 
-      results.push({ urn, text, reactions, comments, reposts, isRepost });
-    }
-    return results;
-  }, limit);
+    results.push({ urn, text, reactions, comments, reposts, isRepost });
+  }
+  return results;
+}
+
+// "Aditya Lamichhane and 14 others reacted" is 15 reactions: every name before
+// " and " counts, plus the others. "Sam Jones reacted" is 1. A bare "1,204
+// reactions" is read as a number.
+export function reactionsFromText(text: string): number {
+  const t = text.trim();
+  if (!t) return 0;
+  const others = t.match(/\band\s+([\d,]+)\s+others?\b/i);
+  if (others) {
+    const names = t.slice(0, others.index).split(',').filter((n) => n.trim()).length;
+    return names + parseCount(others[1]);
+  }
+  if (/^[^\d]*\breacted\b/i.test(t)) return 1;
+  return parseCount(t);
 }
 
 // Read one post's full analytics from its owner-only analytics page. LinkedIn
