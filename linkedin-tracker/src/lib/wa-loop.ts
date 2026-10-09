@@ -20,9 +20,11 @@ const SEND_SCRIPT = path.join(PACKAGE_ROOT, 'scripts', 'wa-send.applescript');
 // 30-minute retry slot intact rather than eating it.
 const MAX_PASSES = 3;
 
-async function applyRemedy(action: RemedyAction): Promise<boolean> {
+async function applyRemedy(action: RemedyAction, group: string): Promise<boolean> {
   try {
-    const { stdout } = await execFileAsync('osascript', [SEND_SCRIPT, 'recover', action], { timeout: 45_000 });
+    // The group name is only used by reopen-chat (to find the chat again after
+    // the window comes back); the other remedies ignore it.
+    const { stdout } = await execFileAsync('osascript', [SEND_SCRIPT, 'recover', action, group], { timeout: 60_000 });
     return stdout.trim() === 'ok';
   } catch {
     // A remedy that threw did not work. The caller stops rather than retrying
@@ -114,7 +116,7 @@ export async function sendWithRecovery(message: string, group: string): Promise<
 
       if (!plan.retry || !plan.action) break;
 
-      const ok = await applyRemedy(plan.action);
+      const ok = await applyRemedy(plan.action, group);
       attempted.push({ action: plan.action, ok });
       // A remedy that failed means the next send would hit the same wall.
       if (!ok) break;

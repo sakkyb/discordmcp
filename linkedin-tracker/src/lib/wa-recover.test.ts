@@ -6,7 +6,10 @@ import { causeOf, planFor, renderReport } from './wa-recover.js';
 const OK = 'waFrontmost=true|frontmostApp=WhatsApp|focusedRole=AXTextArea|windowCount=1|bounds=0,0,500,835';
 const NOT_FRONT = 'waFrontmost=false|frontmostApp=Google Chrome|focusedRole=AXGroup|windowCount=1|bounds=0,0,500,835';
 const WRONG_FOCUS = 'waFrontmost=true|frontmostApp=WhatsApp|focusedRole=AXGroup|windowCount=1|bounds=0,0,500,835';
-const NO_WINDOW = 'waFrontmost=false|frontmostApp=Finder|focusedRole=none|windowCount=0|bounds=';
+const NO_WINDOW = 'waFrontmost=false|frontmostApp=Finder|focusedRole=none|windowCount=0|bounds=|running=false';
+// 2026-10-09: WhatsApp alive since 24 Sep, but its window had been closed with
+// Cmd-W. Activating never reopens a closed window, so this needs its own remedy.
+const WINDOW_CLOSED = 'waFrontmost=true|frontmostApp=WhatsApp|focusedRole=none|windowCount=0|bounds=|running=true';
 
 function cause(raw: string, opts: { displays?: number | null; screen?: string; error?: string } = {}) {
   return causeOf(parseProbe(raw), opts.displays ?? 1, opts.screen ?? '', opts.error ?? 'send failed');
@@ -43,6 +46,19 @@ test('no window at all means the app is not running', () => {
   assert.equal(cause(NO_WINDOW), 'not-running');
 });
 
+test('a running app with no window is a closed window, not a dead app', () => {
+  assert.equal(cause(WINDOW_CLOSED), 'window-closed');
+});
+
+test('a closed window is reopened and the chat re-parked, in this run', () => {
+  assert.deepEqual(planFor('window-closed'), { action: 'reopen-chat', retry: true, escalate: false });
+});
+
+test('the report names a closed window in its headline', () => {
+  const text = renderReport({ cause: 'window-closed', why: 'x', attempted: [], recovered: false });
+  assert.match(text, /window-closed: .*window.*closed/i);
+});
+
 test('another app holding frontmost is its own cause', () => {
   assert.equal(cause(NOT_FRONT), 'not-frontmost');
 });
@@ -57,11 +73,15 @@ test('a healthy probe with no other signal reports state-ok', () => {
 
 // --- planFor: fix it, or stop and escalate? -------------------------------
 
-test('the three recoverable causes each have a remedy', () => {
+test('the recoverable causes each have a remedy', () => {
   assert.deepEqual(planFor('not-running').action, 'launch-app');
   assert.deepEqual(planFor('not-frontmost').action, 'activate');
-  assert.deepEqual(planFor('wrong-focus').action, 'escape-then-focus');
-  for (const c of ['not-running', 'not-frontmost', 'wrong-focus'] as const) {
+  // Not escape-then-focus any more: in WhatsApp 2.26 Escape CLOSES the open
+  // conversation (2026-10-09), which is why that remedy failed every time it
+  // ran. Re-parking the chat through search is the one path that works.
+  assert.deepEqual(planFor('wrong-focus').action, 'reopen-chat');
+  assert.deepEqual(planFor('window-closed').action, 'reopen-chat');
+  for (const c of ['not-running', 'not-frontmost', 'wrong-focus', 'window-closed'] as const) {
     assert.equal(planFor(c).retry, true, `${c} should be retried`);
   }
 });
@@ -113,14 +133,14 @@ test('the report lists what was tried', () => {
     why: 'CAUSE: WhatsApp did not come frontmost — "Google Chrome" held it instead.',
     attempted: [
       { action: 'activate', ok: false },
-      { action: 'escape-then-focus', ok: false },
+      { action: 'reopen-chat', ok: false },
     ],
     recovered: false,
     claudeSays: 'Chrome is running a foreground automation on the tracker profile.',
   });
   assert.match(msg, /CAUSE: WhatsApp did not come frontmost/);
   assert.match(msg, /activate ✗/);
-  assert.match(msg, /escape-then-focus ✗/);
+  assert.match(msg, /reopen-chat ✗/);
   assert.match(msg, /Chrome is running a foreground automation/);
 });
 

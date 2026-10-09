@@ -65,7 +65,9 @@ on run argv
 	-- click the composer. typeAndSend is still gated by composerHasFocus().
 	if mode is "recover" then
 		if (count of argv) < 2 then error "recover mode needs an action"
-		return my recover(item 2 of argv)
+		set extra to ""
+		if (count of argv) >= 3 then set extra to item 3 of argv
+		return my recover(item 2 of argv, extra)
 	end if
 
 	tell application "System Events"
@@ -112,7 +114,75 @@ end run
 -- condition it is asserting rather than sleeping a fixed amount, and errors if
 -- the condition never arrives, so a remedy that did not work is never reported
 -- as one that did.
-on recover(action)
+on recover(action, extra)
+	-- The window was closed (Cmd-W / red button) while the app kept running.
+	-- `activate` never reopens a closed window — verified 2026-10-09 — but
+	-- `reopen` does, in about a second. It comes back on the chat list with NO
+	-- chat open, so the group has to be found again: WhatsApp's own search,
+	-- typed only while no composer exists to type into, then Return opens the
+	-- top match. The OCR header check still runs before anything is sent.
+	if action is "reopen-chat" then
+		if extra is "" then error "reopen-chat needs the group name"
+		tell application "WhatsApp" to activate
+		set haveWindow to false
+		tell application "System Events" to tell process "WhatsApp"
+			if (count of windows) > 0 then set haveWindow to true
+		end tell
+		if not haveWindow then
+			-- The app's own menu item is the canonical way back; `reopen` is the
+			-- fallback. Both bring the window up in about a second.
+			try
+				tell application "System Events" to tell process "WhatsApp"
+					click (first menu item of menu 1 of (first menu bar item of menu bar 1 whose name ends with "WhatsApp") whose name ends with "Open main window")
+				end tell
+			on error
+				tell application "WhatsApp" to reopen
+			end try
+			repeat 30 times
+				delay 0.5
+				tell application "System Events" to tell process "WhatsApp"
+					if (count of windows) > 0 then set haveWindow to true
+				end tell
+				if haveWindow then exit repeat
+			end repeat
+			if not haveWindow then error "WhatsApp did not reopen a window within 15s"
+			delay 1
+		end if
+		if my composerHasFocus() then return "ok"
+
+		-- The window is back but no chat is open (or focus is elsewhere). Find
+		-- the group again through the chat-list search box. The box sits at a
+		-- fixed offset in the top-left of the window at every width the app
+		-- allows, and it must be a REAL click: see wa-click.jxa.
+		tell application "System Events" to tell process "WhatsApp"
+			set p to position of window 1
+		end tell
+		my realClick((item 1 of p) + 250, (item 2 of p) + 67, 1)
+		delay 0.6
+		-- Never type into a composer. The search box reads as a generic element
+		-- (never AXTextArea), so a focused composer here means the click missed.
+		if my composerHasFocus() then return "ok"
+		tell application "System Events" to tell process "WhatsApp"
+			keystroke "a" using command down
+			delay 0.2
+			keystroke extra
+			delay 1.5
+			key code 36
+			delay 1.5
+		end tell
+		if my composerHasFocus() then return "ok"
+		-- Return did not open the top match (it does not when the chat is
+		-- "selected" but its conversation view was dismissed). Double-click the
+		-- first result row: its centre sat at +155 and +205 in the two layouts
+		-- seen, and rows are ~60px tall, so +180 lands on it in both.
+		my realClick((item 1 of p) + 250, (item 2 of p) + 180, 2)
+		delay 1.2
+		if my composerHasFocus() then return "ok"
+		my clickComposer()
+		if my composerHasFocus() then return "ok"
+		error "reopened the window but could not open the chat and focus the composer"
+	end if
+
 	if action is "launch-app" then
 		tell application "WhatsApp" to activate
 		repeat 30 times
@@ -141,20 +211,6 @@ on recover(action)
 			end tell
 		end repeat
 		error "WhatsApp did not come frontmost within 10s"
-	end if
-
-	if action is "escape-then-focus" then
-		tell application "WhatsApp" to activate
-		delay 0.8
-		-- Escape backs out of a search field, a sheet or a forwarded-message
-		-- picker — the states that leave focus on an AXGroup with a chat open.
-		tell application "System Events" to tell process "WhatsApp"
-			key code 53
-			delay 0.5
-		end tell
-		my clickComposer()
-		if my composerHasFocus() then return "ok"
-		error "the composer still does not have focus after Escape and a click"
 	end if
 
 	error "unknown recover action: " & action
@@ -197,7 +253,11 @@ on probeState()
 	set focRole to "none"
 	set winCount to "0"
 	set b to ""
+	set procRunning to "false"
 	tell application "System Events"
+		try
+			if (exists process "WhatsApp") then set procRunning to "true"
+		end try
 		try
 			set frontApp to name of first process whose frontmost is true
 		end try
@@ -221,13 +281,23 @@ on probeState()
 			end tell
 		end try
 	end tell
-	return "waFrontmost=" & waFront & "|frontmostApp=" & frontApp & "|focusedRole=" & focRole & "|windowCount=" & winCount & "|bounds=" & b
+	return "waFrontmost=" & waFront & "|frontmostApp=" & frontApp & "|focusedRole=" & focRole & "|windowCount=" & winCount & "|bounds=" & b & "|running=" & procRunning
 end probeState
 
--- Click where the composer sits: bottom-centre of the window. WhatsApp's
+-- A genuine mouse click (see wa-click.jxa for why System Events' own click
+-- is not enough here). Coordinates are screen pixels.
+on realClick(x, y, n)
+	set here to do shell script "dirname " & quoted form of POSIX path of (path to me)
+	do shell script "/usr/bin/osascript -l JavaScript " & quoted form of (here & "/wa-click.jxa") & " " & ((x as integer) as text) & " " & ((y as integer) as text) & " " & (n as text)
+end realClick
+
+-- Click where the composer sits: bottom of the chat pane. WhatsApp's
 -- accessibility tree is too shallow to locate the element (window 1 exposes one
 -- group containing one group, and no text areas at any level), so position is
--- the only handle available.
+-- the only handle available. Three-quarters across, not the centre: at the
+-- main window's 800px minimum width the chat list fills the left ~45%, and a
+-- centre click landed in the list and opened whichever chat sat there
+-- (2026-10-09). 75% is inside the composer at every width the app allows.
 --
 -- Clicking is safe even if the aim is wrong: it cannot send anything, and
 -- composerHasFocus() still gates the typing. With no chat open there is no
@@ -238,9 +308,9 @@ on clickComposer()
 			try
 				set p to position of window 1
 				set sz to size of window 1
-				set cx to (item 1 of p) + (item 1 of sz) / 2
+				set cx to (item 1 of p) + (item 1 of sz) * 0.75
 				set cy to (item 2 of p) + (item 2 of sz) - 30
-				click at {cx, cy}
+				my realClick(cx, cy, 1)
 				delay 0.8
 			end try
 		end tell

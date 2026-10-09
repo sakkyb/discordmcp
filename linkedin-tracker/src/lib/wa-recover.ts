@@ -19,12 +19,13 @@ export type CauseCode =
   | 'offline'
   | 'no-display'
   | 'not-running'
+  | 'window-closed'
   | 'not-frontmost'
   | 'wrong-focus'
   | 'tooling-broken'
   | 'state-ok';
 
-export type RemedyAction = 'launch-app' | 'activate' | 'escape-then-focus';
+export type RemedyAction = 'launch-app' | 'reopen-chat' | 'activate';
 
 export interface Plan {
   action: RemedyAction | null;
@@ -73,7 +74,10 @@ export function causeOf(
   // of activating will help and every later check is meaningless.
   if (displays === 0) return 'no-display';
 
-  if (probe.windowCount === 0) return 'not-running';
+  // 2026-10-09: the process was alive (since 24 Sep) but someone had closed
+  // its window. `activate` never reopens a closed window, so this must not be
+  // treated as "launch it".
+  if (probe.windowCount === 0) return probe.running ? 'window-closed' : 'not-running';
   if (!probe.waFrontmost) return 'not-frontmost';
   if (probe.focusedRole !== 'AXTextArea') return 'wrong-focus';
   return 'state-ok';
@@ -82,8 +86,12 @@ export function causeOf(
 const PLANS: Record<CauseCode, Plan> = {
   // Recoverable: something transient took the screen, and re-asserting is safe.
   'not-running': { action: 'launch-app', retry: true, escalate: false },
+  'window-closed': { action: 'reopen-chat', retry: true, escalate: false },
   'not-frontmost': { action: 'activate', retry: true, escalate: false },
-  'wrong-focus': { action: 'escape-then-focus', retry: true, escalate: false },
+  // Re-park the chat through search rather than press Escape: in WhatsApp
+  // 2.26 Escape closes the open conversation (2026-10-09), so the old
+  // escape-then-focus remedy made things worse every time it ran.
+  'wrong-focus': { action: 'reopen-chat', retry: true, escalate: false },
 
   // Needs a human at the keyboard. Retrying burns the run and a Claude call
   // buys nothing — nothing it can say clears a locked Mac or an open dialog.
@@ -144,6 +152,7 @@ const HEADLINE: Record<CauseCode, string> = {
   offline: 'WhatsApp is disconnected from the network.',
   'no-display': 'No active display — macOS cannot bring any app frontmost.',
   'not-running': 'WhatsApp was not running.',
+  'window-closed': 'WhatsApp was running but its window was closed; reopened it and re-parked the chat.',
   'not-frontmost': 'WhatsApp could not hold frontmost.',
   'wrong-focus': 'WhatsApp was frontmost but the composer did not have focus.',
   'tooling-broken': 'A command the send depends on could not be run — check PATH, not WhatsApp.',

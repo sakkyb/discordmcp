@@ -67,3 +67,16 @@ test('describeProbe leads with the screen reading when there is one', () => {
   const msg = describeProbe(parseProbe(FOCUSED), 1, 'Update WhatsApp to continue');
   assert.match(msg, /update/i);
 });
+
+// --- running vs window closed ----------------------------------------------
+test('parseProbe reads the running flag, and assumes running when the field is absent', () => {
+  assert.equal(parseProbe('windowCount=0|running=false').running, false);
+  assert.equal(parseProbe('windowCount=0|running=true').running, true);
+  assert.equal(parseProbe('windowCount=1').running, true);
+});
+
+test('describeProbe says the window is closed when the app runs with no window', () => {
+  const msg = describeProbe(parseProbe('waFrontmost=true|frontmostApp=WhatsApp|focusedRole=none|windowCount=0|bounds=|running=true'), 1);
+  assert.match(msg, /window.*closed/i);
+  assert.doesNotMatch(msg, /not the message composer/i);
+});
