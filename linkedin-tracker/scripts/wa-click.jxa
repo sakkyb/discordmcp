@@ -1,0 +1,26 @@
+// Post a REAL mouse click at screen coordinates: wa-click.jxa <x> <y> [count]
+//
+// Why this exists: WhatsApp (a Catalyst app) ignores the accessibility
+// "click at" that System Events performs — the AX press lands on a group and
+// nothing happens — but it honours a genuine mouse event. Posting one from
+// inside osascript keeps it under the accessibility grant the job already has
+// for keystrokes (the tracker's node → osascript chain), so no new permission
+// is needed. Verified 2026-10-09 from a launchd job.
+ObjC.import('CoreGraphics');
+function run(argv) {
+  const x = Number(argv[0]), y = Number(argv[1]), n = Number(argv[2] || 1);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('usage: wa-click.jxa <x> <y> [count]');
+  const pt = { x, y };
+  const post = (type, state) => {
+    const ev = $.CGEventCreateMouseEvent(null, type, pt, $.kCGMouseButtonLeft);
+    if (state) $.CGEventSetIntegerValueField(ev, $.kCGMouseEventClickState, state);
+    $.CGEventPost($.kCGHIDEventTap, ev);
+  };
+  post($.kCGEventMouseMoved, 0);
+  delay(0.15);
+  for (let i = 1; i <= n; i++) {
+    post($.kCGEventLeftMouseDown, i); delay(0.04);
+    post($.kCGEventLeftMouseUp, i); delay(0.08);
+  }
+  return 'clicked ' + n;
+}

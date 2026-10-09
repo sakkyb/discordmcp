@@ -12,6 +12,10 @@ export interface ProbeRecord {
   focusedRole: string;
   windowCount: number;
   bounds: string;
+  // Whether the WhatsApp process exists. windowCount=0 alone cannot tell a
+  // quit app from one whose window was closed with Cmd-W (2026-10-09), and
+  // the two need different remedies. Assumed true when the field is absent.
+  running: boolean;
 }
 
 export function parseProbe(raw: string): ProbeRecord {
@@ -26,6 +30,7 @@ export function parseProbe(raw: string): ProbeRecord {
     focusedRole: kv.get('focusedRole') || 'none',
     windowCount: Number(kv.get('windowCount') ?? 0) || 0,
     bounds: kv.get('bounds') || '',
+    running: kv.get('running') !== 'false',
   };
 }
 
@@ -56,6 +61,10 @@ export function describeProbe(p: ProbeRecord, displays: number | null, screenTex
   if (displays === 0) {
     return 'CAUSE: no active display. macOS cannot make any app frontmost with zero displays attached, ' +
       'so the composer check can never pass. Check the virtual display is running.';
+  }
+  if (p.windowCount === 0 && p.running) {
+    return 'CAUSE: WhatsApp is running but its window is closed (Cmd-W / red button), so there is no chat ' +
+      'and no composer. Activating never reopens it; it needs a reopen and the group chat re-parked.';
   }
   if (!p.waFrontmost) {
     return `CAUSE: WhatsApp did not come frontmost — "${p.frontmostApp}" held it instead ` +
